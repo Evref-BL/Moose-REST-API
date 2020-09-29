@@ -28,16 +28,21 @@ Class {
 
 { #category : #api }
 MRAPIModel class >> entities: aRequest [
+	"model/<modelID>/entities?page=X&numberOfItems"
+
 	<REST_API: 'GET' versions: #('v1') pattern: 'model/<modelID>/entities'>
-	| model |
+	| model pageNumber numberOfItems |
+	pageNumber := (aRequest queryOrFormParam: #page ifAbsent: [ 0 ]) asInteger.
+	numberOfItems := (aRequest queryOrFormParam: #numberOfItems ifAbsent: [ 15 ]) asInteger.
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
-	^ MROutput json value: (TeaResponse ok body: (model entities first: 15))
+	^ MROutput json value: (TeaResponse ok body: (model entities copyFrom: numberOfItems * pageNumber + 1 to: numberOfItems * (pageNumber + 1)))
 ]
 
 { #category : #api }
 MRAPIModel class >> entity: aRequest [
 	<REST_API: 'GET' versions: #('v1') pattern: 'model/<modelID>/entity/<entityID>'>
-	| model |
+	| model entityID |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
-	^ MROutput json value: (TeaResponse ok body: (model at: (aRequest at: #entityID) asInteger))
+	entityID := (aRequest at: #entityID) asInteger.
+	^ MROutput json value: (TeaResponse ok body: (model detect: [ :el | el mooseID = entityID ]))
 ]
