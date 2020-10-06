@@ -48,6 +48,15 @@ MRAPIModel class >> entity: aRequest [
 ]
 
 { #category : #api }
+MRAPIModel class >> entityChildren: aRequest [
+	<REST_API: 'GET' versions: #('v1') pattern: 'model/<modelID>/entity/<entityID>/children'>
+	| model entityID |
+	model := MooseModel root at: (aRequest at: #modelID) asInteger.
+	entityID := (aRequest at: #entityID) asInteger.
+	^ MROutput json value: (TeaResponse ok body: (model detect: [ :el | el mooseID = entityID ]) children)
+]
+
+{ #category : #api }
 MRAPIModel class >> subTypesOf: aRequest [
 	"model/<modelID>/subTypesOf?type=TheType&page=X&numberOfItems"
 
