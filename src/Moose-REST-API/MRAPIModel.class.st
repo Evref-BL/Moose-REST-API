@@ -72,19 +72,31 @@ MRAPIModel class >> get: aRequest [
 
 { #category : #api }
 MRAPIModel class >> subTypesOf: aRequest [
+
 	"model/<modelID>/subTypesOf?type=TheType&page=X&numberOfItems"
 
-	<REST_API: 'GET' versions: #('v1') pattern: 'model/<modelID>/subTypesOf'>
+	<REST_API: 'GET' versions: #( 'v1' ) pattern:
+	'model/<modelID>/subTypesOf'>
 	| model pageNumber numberOfItems class result |
-	pageNumber := (aRequest queryOrFormParam: #page ifAbsent: [ 0 ]) asInteger.
-	numberOfItems := (aRequest queryOrFormParam: #numberOfItems ifAbsent: [ 15 ]) asInteger.
+	pageNumber := (aRequest queryOrFormParam: #page ifAbsent: [ 0 ])
+		              asInteger.
+	numberOfItems := (aRequest
+		                  queryOrFormParam: #numberOfItems
+		                  ifAbsent: [ 15 ]) asInteger.
 	class := self class environment
-		at: (aRequest queryOrFormParam: #type ifAbsent: [ ^ MROutput json value: TeaResponse notFound ]) asSymbol
-		ifAbsent: [ ^ MROutput json value: TeaResponse notFound ].
+		         at: (aRequest
+				          queryOrFormParam: #type
+				          ifAbsent: [ ^ MROutput json value: TeaResponse notFound ])
+				         asSymbol
+		         ifAbsent: [ ^ MROutput json value: TeaResponse notFound ].
 
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
 	result := Dictionary new.
-	result at: #'size' put: (model allWithSubTypesOf: class) size.
-	result at: #'data' put: ((model allWithSubTypesOf: class) asOrderedCollection copyFrom: numberOfItems * pageNumber + 1 to: numberOfItems * (pageNumber + 1)).
-	^ MROutput json value: (TeaResponse ok body: (result))
+	result at: #size put: (model allWithSubTypesOf: class) size.
+	result
+		at: #data
+		put: ((model allWithSubTypesOf: class) asOrderedCollection
+				 copyFrom: numberOfItems * pageNumber + 1
+				 to: numberOfItems * (pageNumber + 1)).
+	^ MROutput json value: (TeaResponse ok body: result)
 ]

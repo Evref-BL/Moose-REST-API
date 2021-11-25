@@ -16,5 +16,4 @@ MRModelExporter >> exportEntity: each [
 				select: [ :property | self shouldExportProperty: property for: each ])
 				do: [ :property | self exportProperty: property for: each ]
 				separatedBy: [ printer printPropertySeparator ] ].
-	self incrementProgressBar
 ]
