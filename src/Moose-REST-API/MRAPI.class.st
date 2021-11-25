@@ -21,3 +21,10 @@ MRAPI class >> reset [
 	<script>
 	TLWebserver teapot removeAllDynamicRoutes
 ]
+
+{ #category : #api }
+MRAPI class >> retrieveModel: aRequest [
+	"I need a model"
+
+	^ MooseModel root at: (aRequest at: #modelID) asInteger
+]

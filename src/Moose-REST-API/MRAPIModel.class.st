@@ -100,3 +100,13 @@ MRAPIModel class >> subTypesOf: aRequest [
 				 to: numberOfItems * (pageNumber + 1)).
 	^ MROutput json value: (TeaResponse ok body: result)
 ]
+
+{ #category : #api }
+MRAPIModel class >> summary: aRequest [
+
+	<REST_API: 'GET' versions: #( 'v1' ) pattern:
+	'model/<modelID>/summary'>
+	| model |
+	model := self retrieveModel: aRequest.
+	^ MROutput json value: (TeaResponse ok body: model webSummary)
+]
