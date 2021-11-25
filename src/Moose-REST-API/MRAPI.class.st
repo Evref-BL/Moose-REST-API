@@ -22,6 +22,16 @@ MRAPI class >> reset [
 	TLWebserver teapot removeAllDynamicRoutes
 ]
 
+{ #category : #accessing }
+MRAPI class >> retrieveEntity: aRequest [
+	"I need a model and the entity id"
+
+	| model entityID |
+	model := MooseModel root at: (aRequest at: #modelID) asInteger.
+	entityID := (aRequest at: #entityID) asInteger.
+	^ model detect: [ :el | el mooseID = entityID ]
+]
+
 { #category : #api }
 MRAPI class >> retrieveModel: aRequest [
 	"I need a model"

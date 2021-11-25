@@ -48,12 +48,47 @@ MRAPIModel class >> entity: aRequest [
 ]
 
 { #category : #api }
+MRAPIModel class >> entityAttributes: aRequest [
+
+	<REST_API: 'GET' versions: #( 'v1' ) pattern:
+	'model/<modelID>/entity/<entityID>/attributes'>
+	| entity metaProperties attributes |
+	entity := self retrieveEntity: aRequest.
+	metaProperties := entity mooseDescription allPrimitiveProperties 
+		                  sorted: #name ascending.
+	attributes := metaProperties collect: [ :att | 
+		              { 
+			              (#key -> att name).
+			              (#value -> ( [entity mmGetProperty: att ] on: Error
+						do: [ :e | e description ]) printString) } asDictionary ].
+
+	^ MROutput json value: (TeaResponse ok body: attributes)
+]
+
+{ #category : #api }
 MRAPIModel class >> entityChildren: aRequest [
 	<REST_API: 'GET' versions: #('v1') pattern: 'model/<modelID>/entity/<entityID>/children'>
 	| model entityID |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
 	entityID := (aRequest at: #entityID) asInteger.
 	^ MROutput json value: (TeaResponse ok body: (model detect: [ :el | el mooseID = entityID ]) children)
+]
+
+{ #category : #api }
+MRAPIModel class >> entitySourceCode: aRequest [
+
+	<REST_API: 'GET' versions: #( 'v1' ) pattern:
+	'model/<modelID>/entity/<entityID>/sourceCode'>
+	| entity |
+	entity := self retrieveEntity: aRequest.
+
+	^ MROutput json value: (TeaResponse ok body: { 
+				   ('body' -> (entity sourceAnchor
+					    ifNotNil: [ :anchor | anchor sourceText ]
+					    ifNil: [ 'No available text' ])).
+				   (#file -> (entity sourceAnchor
+					    ifNotNil: [ :anchor | anchor fileName ]
+					    ifNil: [ 'No link' ])) } asDictionary)
 ]
 
 { #category : #api }
@@ -68,6 +103,15 @@ MRAPIModel class >> get: aRequest [
 				body:
 					{('name' -> model name).
 					('id' -> modelID)} asDictionary )
+]
+
+{ #category : #'api - tree' }
+MRAPIModel class >> rootEntities: aRequest [
+	<REST_API: 'GET' versions: #('v1') pattern: 'model/<modelID>/rootEntities'>
+	| model rootEntities |
+	model := MooseModel root at: (aRequest at: #modelID) asInteger.
+	rootEntities := model select: [ :a | (a usesFamixTrait: TEntityMetaLevelDependency) and: [ a parents isEmpty ] ].
+	^ MROutput json value: (TeaResponse ok body: rootEntities)
 ]
 
 { #category : #api }
