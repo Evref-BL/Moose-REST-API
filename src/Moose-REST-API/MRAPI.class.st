@@ -29,7 +29,7 @@ MRAPI class >> retrieveEntity: aRequest [
 	| model entityID |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
 	entityID := (aRequest at: #entityID) asInteger.
-	^ model detect: [ :el | el mooseID = entityID ]
+	^ model detect: [ :el | el mooseID == entityID ]
 ]
 
 { #category : #api }

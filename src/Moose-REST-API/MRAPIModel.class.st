@@ -75,6 +75,25 @@ MRAPIModel class >> entityChildren: aRequest [
 ]
 
 { #category : #api }
+MRAPIModel class >> entityExtensions: aRequest [
+
+	<REST_API: 'GET' versions: #( 'v1' ) pattern:
+	'model/<modelID>/entity/<entityID>/extensions'>
+	| entity extensions |
+	entity := self retrieveEntity: aRequest.
+	extensions := OrderedCollection new.
+	MRExtension allSubclassesDo: [ :subClass | 
+		| instance answer |
+		instance := subClass new.
+		answer := Dictionary new.
+		answer at: #name put: instance title.
+		answer at: #canFollow put: (instance canReceiveEntity: entity).
+		(answer at: #canFollow) ifTrue: [ answer at: #data put: (instance followEntity: entity) ].
+		extensions add: answer  ].
+	^ MROutput json value: (TeaResponse ok body: extensions)
+]
+
+{ #category : #api }
 MRAPIModel class >> entitySourceCode: aRequest [
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
