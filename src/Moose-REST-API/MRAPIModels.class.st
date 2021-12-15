@@ -31,10 +31,14 @@ MRAPIModels class >> getVerveineJPath [
 			extractAllTo: FileSystem workingDirectory / 'VerveineJ'.
 
 		FileSystem workingDirectory / 'VerveineJ' / 'VerveineJ-2.0.2' ].
+	OSPlatform current isWindows ifTrue: [ 
+		^ (FileSystem workingDirectory / 'VerveineJ' / 'VerveineJ-2.0.2'
+		   / 'verveinej.bat') fullName ].
+	LibC runCommand: 'chmod +x '
+		, (FileSystem workingDirectory / 'VerveineJ' / 'VerveineJ-2.0.2'
+			 / 'verveinej.sh') fullName.
 	^ (FileSystem workingDirectory / 'VerveineJ' / 'VerveineJ-2.0.2'
-	  / (OSPlatform current isWindows
-			   ifTrue: [ 'verveinej.bat' ]
-			   ifFalse: [ 'verveinej.sh' ])) fullName
+	   / 'verveinej.sh') fullName
 ]
 
 { #category : #api }
