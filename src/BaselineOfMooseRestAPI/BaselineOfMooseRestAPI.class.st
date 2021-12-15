@@ -39,7 +39,14 @@ BaselineOfMooseRestAPI >> baseline: spec [
 
 { #category : #baselines }
 BaselineOfMooseRestAPI >> defineDependencies: spec [
-	spec baseline: 'Tealight' with: [ spec repository: 'github://astares/Tealight/repository' ]
+
+	spec
+		baseline: 'Tealight'
+		with: [ spec repository: 'github://astares/Tealight/repository' ].
+
+	spec
+		baseline: 'Roassal3Exporters'
+		with: [ spec repository: 'github://ObjectProfile/Roassal3Exporters' ]
 ]
 
 { #category : #baselines }
@@ -49,6 +56,8 @@ BaselineOfMooseRestAPI >> defineGroups: spec [
 
 { #category : #baselines }
 BaselineOfMooseRestAPI >> definePackages: spec [
+
 	spec
 		package: 'Moose-REST-API'
+		with: [ spec requires: #( 'Tealight' 'Roassal3Exporters' ) ]
 ]
