@@ -16,6 +16,27 @@ MRAPIModels class >> delete: aRequest [
 	^ MROutput json value: TeaResponse ok
 ]
 
+{ #category : #accessing }
+MRAPIModels class >> getVerveineJPath [
+
+	"I return the path to the executable for VerveineJ depending of the operating system"
+
+	(FileSystem workingDirectory / 'VerveineJ' / 'VerveineJ-2.0.2')
+		exists ifFalse: [ 
+		'https://github.com/moosetechnology/VerveineJ/archive/refs/tags/v2.0.2.zip'
+			asZnUrl saveContentsToFile:
+			FileSystem workingDirectory / 'VerveineJ.zip'.
+		ZipArchive new
+			readFrom: FileSystem workingDirectory / 'VerveineJ.zip';
+			extractAllTo: FileSystem workingDirectory / 'VerveineJ'.
+
+		FileSystem workingDirectory / 'VerveineJ' / 'VerveineJ-2.0.2' ].
+	^ (FileSystem workingDirectory / 'VerveineJ' / 'VerveineJ-2.0.2'
+	  / (OSPlatform current isWindows
+			   ifTrue: [ 'verveinej.bat' ]
+			   ifFalse: [ 'verveinej.sh' ])) fullName
+]
+
 { #category : #api }
 MRAPIModels class >> import: aRequest [
 
@@ -27,7 +48,7 @@ MRAPIModels class >> import: aRequest [
 		       ifAbsent: [ 
 		       ^ MROutput json value:
 			         (TeaResponse badRequest body: aRequest) ].
-	verveineJPath := 'D:\Users\benoit.verhaeghe\Documents\git\moosetechnology\VerveineJ\verveinej.bat'.
+	verveineJPath := self getVerveineJPath.
 	mseName := (MooseEasyUtility extractProjectNameFromGitHubURL: url)
 	           , '.mse'.
 	MooseEasyUtility cloneGitHubRepo: url.
