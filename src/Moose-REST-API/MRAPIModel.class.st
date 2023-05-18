@@ -139,23 +139,6 @@ MRAPIModel class >> entitySourceCode: aRequest [
 					     ifNil: [ 'No link' ])) } asDictionary)
 ]
 
-{ #category : #api }
-MRAPIModel class >> get: aRequest [
-
-	"Return the basic meta information about a model "
-
-	<REST_API: 'GET' versions: #( 'v1' ) pattern: 'model/<modelID>'>
-	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
-	#object>
-	<OPEN_API_parameter: #modelID schema: 'integer'>
-	| model modelID |
-	modelID := (aRequest at: #modelID) asInteger.
-	model := MooseModel root at: modelID.
-	^ MROutput json value: (TeaResponse ok body: { 
-				   ('name' -> model name).
-				   ('id' -> modelID) } asDictionary)
-]
-
 { #category : #'api - tree' }
 MRAPIModel class >> rootEntities: aRequest [
 
