@@ -11,14 +11,16 @@ MRAPIModelMeta class >> modelMeta: aRequest [
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern: 'model/<modelID>/meta'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
-	#object>
+	#object model: #MRModelMetaInformation>
 	<OPEN_API_parameter: #modelID schema: 'integer'>
 	| model |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
-	^ MROutput json value: (TeaResponse ok body: { 
-				   (#name -> model name).
-				   (#size -> model size).
-				   (#id -> (aRequest at: #modelID) asInteger) } asDictionary)
+	^ TeaOutput json value:
+		  (TeaResponse ok body: (MRModelMetaInformation new
+				    size: model size;
+				    name: model name;
+				    id: (aRequest at: #modelID) asInteger;
+				    yourself))
 ]
 
 { #category : #'as yet unclassified' }
