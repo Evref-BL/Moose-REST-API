@@ -82,7 +82,7 @@ MRAPIModels class >> models: aRequest [
 	"I return the list of model accessible with the API. For each model, I provide its id and its name."
 
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
-	#array>
+	#array items: #MRModelMinimalInformation>
 	<REST_API: 'GET' versions: #( 'v1' ) pattern: 'models'>
 	^ TeaOutput json value: (TeaResponse ok body:
 			   (MooseModel root collectWithIndex: [ :model :idx | 
