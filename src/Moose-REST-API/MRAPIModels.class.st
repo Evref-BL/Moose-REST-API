@@ -14,8 +14,9 @@ MRAPIModels class >> delete: aRequest [
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
 	'models/delete/<modelID>'>
-	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #none
-	schema: #object>
+	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #none schema:
+	#object>
+	<OPEN_API_parameter: #modelID schema: 'integer'>
 	MooseModel root remove: (self retrieveModel: aRequest).
 	^ MROutput json value: TeaResponse ok
 ]
@@ -83,9 +84,10 @@ MRAPIModels class >> models: aRequest [
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array>
 	<REST_API: 'GET' versions: #( 'v1' ) pattern: 'models'>
-	^ MROutput json value: (TeaResponse ok body:
+	^ TeaOutput json value: (TeaResponse ok body:
 			   (MooseModel root collectWithIndex: [ :model :idx | 
-				    { 
-					    ('id' -> idx).
-					    ('name' -> model name) } asDictionary ]))
+				    MRModelMinimalInformation new
+					    id: idx;
+					    name: model name;
+					    yourself ]))
 ]
