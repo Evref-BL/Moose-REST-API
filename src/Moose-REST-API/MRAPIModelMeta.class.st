@@ -31,7 +31,7 @@ MRAPIModelMeta class >> modelMetaEntityTypes: aRequest [
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
 	'model/<modelID>/meta/entityTypes'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
-	#object>
+	#array items: #MRModelMetaClassModel>
 	<OPEN_API_parameter: #modelID schema: 'integer'>
 	| model types |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
@@ -39,9 +39,9 @@ MRAPIModelMeta class >> modelMetaEntityTypes: aRequest [
 		           a implementingClass isTrait or: [ 
 			           (model allWithSubTypesOf: a implementingClass) isEmpty ] ]) 
 		          sorted: #name ascending) collect: [ :fm3Class | 
-		         { 
-			         (#name -> fm3Class name).
-			         (#implementationName -> fm3Class implementingClass name) }
-			         asDictionary ].
+		         MRModelMetaClassModel new
+			         name: fm3Class name;
+			         implementationName: fm3Class implementingClass name;
+			         yourself ].
 	^ MROutput json value: (TeaResponse ok body: types)
 ]
