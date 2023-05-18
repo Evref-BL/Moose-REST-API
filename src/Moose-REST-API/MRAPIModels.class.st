@@ -10,8 +10,12 @@ Class {
 { #category : #api }
 MRAPIModels class >> delete: aRequest [
 
-	<REST_API: 'GET' versions: #( 'v1' ) pattern: 'models/delete/<modelID>'>
-	
+	"Delete a model from the server"
+
+	<REST_API: 'GET' versions: #( 'v1' ) pattern:
+	'models/delete/<modelID>'>
+	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #none
+	schema: #object>
 	MooseModel root remove: (self retrieveModel: aRequest).
 	^ MROutput json value: TeaResponse ok
 ]
@@ -44,7 +48,11 @@ MRAPIModels class >> getVerveineJPath [
 { #category : #api }
 MRAPIModels class >> import: aRequest [
 
+	"Create a new model in the server based on its github URL"
+
 	<REST_API: 'POST' versions: #( 'v1' ) pattern: 'models/import'>
+	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json
+	schema: #object>
 	| url object verveineJPath mseName |
 	object := NeoJSONObject fromString: aRequest znRequest entity string.
 	url := object
@@ -69,7 +77,15 @@ MRAPIModels class >> import: aRequest [
 
 { #category : #api }
 MRAPIModels class >> models: aRequest [
-	<REST_API: 'GET' versions: #('v1') pattern: 'models'>
-	^ MROutput json
-		value: (TeaResponse ok body: (MooseModel root collectWithIndex: [ :model :idx | {('id' -> idx) . ('name' -> model name)} asDictionary ]))
+
+	"Return the list of models accessible by the API"
+
+	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
+	#array>
+	<REST_API: 'GET' versions: #( 'v1' ) pattern: 'models'>
+	^ MROutput json value: (TeaResponse ok body:
+			   (MooseModel root collectWithIndex: [ :model :idx | 
+				    { 
+					    ('id' -> idx).
+					    ('name' -> model name) } asDictionary ]))
 ]
