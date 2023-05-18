@@ -7,7 +7,7 @@ Class {
 { #category : #'as yet unclassified' }
 MRAPIModelMeta class >> modelMeta: aRequest [
 
-	"Return the meta information about a model"
+	"I return the kind of entities present in a model. For instance, one can know if a model is composed of classes, methods, traces, GUI information, and so on."
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern: 'model/<modelID>/meta'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json

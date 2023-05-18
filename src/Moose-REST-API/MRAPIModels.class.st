@@ -78,7 +78,7 @@ MRAPIModels class >> import: aRequest [
 { #category : #api }
 MRAPIModels class >> models: aRequest [
 
-	"Return the list of models accessible by the API"
+	"I return the list of model accessible with the API. For each model, I provide its id and its name."
 
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array>
