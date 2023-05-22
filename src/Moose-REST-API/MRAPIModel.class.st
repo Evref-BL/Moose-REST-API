@@ -134,9 +134,12 @@ MRAPIModel class >> entitySourceCode: aRequest [
 				   ('body' -> (entity sourceAnchor
 					     ifNotNil: [ :anchor | anchor sourceText ]
 					     ifNil: [ 'No available text' ])).
-				   (#file -> (entity sourceAnchor
+				   (#file -> ([ 
+				     entity sourceAnchor
 					     ifNotNil: [ :anchor | anchor fileName ]
-					     ifNil: [ 'No link' ])) } asDictionary)
+					     ifNil: [ 'No link' ] ]
+					     on: Error
+					     do: [ 'No file Access' ])) } asDictionary)
 ]
 
 { #category : #'api - tree' }
