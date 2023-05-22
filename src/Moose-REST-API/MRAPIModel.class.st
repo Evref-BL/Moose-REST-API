@@ -13,7 +13,7 @@ MRAPIModel class >> entities: aRequest [
 	'model/<modelID>/entities'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array items: #MRModelEntityBasicInformation>
-	<OPEN_API_parameter: #modelID schema: 'integer'>
+	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
 	| model pageNumber numberOfItems |
 	pageNumber := (aRequest queryOrFormParam: #page ifAbsent: [ 0 ])
 		              asInteger.
@@ -36,8 +36,8 @@ MRAPIModel class >> entitiesOfType: aRequest [
 	'model/<modelID>/entities/type/<type>'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array items: #MRModelEntityBasicInformation>
-	<OPEN_API_parameter: #modelID schema: 'integer'>
-	<OPEN_API_parameter: #type schema: 'string'>
+	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
+	<OPEN_API_parameter: #type schema: 'string' description: #'The **implementation name** of the type such as: `FamixStClass`, `FamixJavaMethod` and so on'>
 	| model pageNumber numberOfItems type |
 	pageNumber := (aRequest queryOrFormParam: #page ifAbsent: [ 0 ])
 		              asInteger.
@@ -64,8 +64,8 @@ MRAPIModel class >> entity: aRequest [
 	'model/<modelID>/entity/<entityFMID>'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#MRModelEntityBasicInformation>
-	<OPEN_API_parameter: #modelID schema: 'integer'>
-	<OPEN_API_parameter: #entityFMID schema: 'integer'>
+	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
+	<OPEN_API_parameter: #entityFMID schema: 'integer' description: #'The fmid of the entity (internal model identification number)'>
 	| model entityID |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
 	entityID := (aRequest at: #entityFMID) asInteger.
@@ -83,8 +83,8 @@ MRAPIModel class >> entityAttributes: aRequest [
 	'model/<modelID>/entity/<entityFMID>/attributes'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array>
-	<OPEN_API_parameter: #modelID schema: 'integer'>
-	<OPEN_API_parameter: #entityFMID schema: 'integer'>
+	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
+	<OPEN_API_parameter: #entityFMID schema: 'integer' description: #'The fmid of the entity (internal model identification number)'>
 	| entity metaProperties attributes |
 	entity := self retrieveEntity: aRequest.
 	metaProperties := entity mooseDescription allPrimitiveProperties 
@@ -109,8 +109,8 @@ MRAPIModel class >> entityChildren: aRequest [
 	'model/<modelID>/entity/<entityFMID>/children'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array>
-	<OPEN_API_parameter: #modelID schema: 'integer'>
-	<OPEN_API_parameter: #entityFMID schema: 'integer'>
+	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
+	<OPEN_API_parameter: #entityFMID schema: 'integer' description: #'The fmid of the entity (internal model identification number)'>
 	| model entityID |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
 	entityID := (aRequest at: #entityFMID) asInteger.
@@ -127,8 +127,8 @@ MRAPIModel class >> entitySourceCode: aRequest [
 	'model/<modelID>/entity/<entityFMID>/sourceCode'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#object>
-	<OPEN_API_parameter: #modelID schema: 'integer'>
-	<OPEN_API_parameter: #entityFMID schema: 'integer'>
+	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
+	<OPEN_API_parameter: #entityFMID schema: 'integer' description: #'The fmid of the entity (internal model identification number)'>
 	| entity |
 	entity := self retrieveEntity: aRequest.
 
@@ -151,7 +151,7 @@ MRAPIModel class >> rootEntities: aRequest [
 	'model/<modelID>/rootEntities'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array items: #MRModelEntityBasicInformation>
-	<OPEN_API_parameter: #modelID schema: 'integer'>
+	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
 	| model rootEntities |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
 	rootEntities := model select: [ :a | 
@@ -173,7 +173,7 @@ MRAPIModel class >> subTypesOf: aRequest [
 	'model/<modelID>/subTypesOf'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array>
-	<OPEN_API_parameter: #modelID schema: 'integer'>
+	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
 	| model pageNumber numberOfItems class result |
 	pageNumber := (aRequest queryOrFormParam: #page ifAbsent: [ 0 ])
 		              asInteger.
