@@ -18,9 +18,7 @@ MRModelEntityBasicInformation class >> from: aMooseEntity [
 	^ self new
 		  name: aMooseEntity name;
 		  fmid: aMooseEntity mooseID;
-		  type:
-			  (aMooseEntity mooseModel metaDescriptionOf: aMooseEntity)
-				  fullName;
+		  type: aMooseEntity mooseDescription fullName;
 		  yourself
 ]
 
