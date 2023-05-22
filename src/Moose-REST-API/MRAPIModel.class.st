@@ -149,13 +149,17 @@ MRAPIModel class >> rootEntities: aRequest [
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
 	'model/<modelID>/rootEntities'>
+	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
+	#array items: #MRModelEntityBasicInformation>
 	<OPEN_API_parameter: #modelID schema: 'integer'>
 	| model rootEntities |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
 	rootEntities := model select: [ :a | 
 		                (a usesFamixTrait: TEntityMetaLevelDependency) and: [ 
 			                a parents isEmpty ] ].
-	^ MROutput json value: (TeaResponse ok body: rootEntities)
+	^ MROutput json value:
+		  (TeaResponse ok body: (rootEntities collect: [ :each | 
+				    MRModelEntityBasicInformation from: each ]))
 ]
 
 { #category : #api }
