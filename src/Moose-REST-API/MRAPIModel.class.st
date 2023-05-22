@@ -33,7 +33,7 @@ MRAPIModel class >> entitiesOfType: aRequest [
 	"I return the list of entity of a specific type."
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
-	'model/<modelID>/entities/types/<type>'>
+	'model/<modelID>/entities/type/<type>'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array items: #MRModelEntityBasicInformation>
 	<OPEN_API_parameter: #modelID schema: 'integer'>
