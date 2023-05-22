@@ -59,14 +59,14 @@ MRAPIModel class >> entity: aRequest [
 	"An endpoint to access information about the entity entityID of the model modelID"
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
-	'model/<modelID>/entity/<entityID>'>
+	'model/<modelID>/entity/<entityFMID>'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#object>
 	<OPEN_API_parameter: #modelID schema: 'integer'>
-	<OPEN_API_parameter: #entityID schema: 'integer'>
+	<OPEN_API_parameter: #entityFMID schema: 'integer'>
 	| model entityID |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
-	entityID := (aRequest at: #entityID) asInteger.
+	entityID := (aRequest at: #entityFMID) asInteger.
 	^ MROutput json value:
 		  (TeaResponse ok body:
 			   (model detect: [ :el | el mooseID = entityID ]))
@@ -78,11 +78,11 @@ MRAPIModel class >> entityAttributes: aRequest [
 	"Return the attributes and their value of a specific entity"
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
-	'model/<modelID>/entity/<entityID>/attributes'>
+	'model/<modelID>/entity/<entityFMID>/attributes'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array>
 	<OPEN_API_parameter: #modelID schema: 'integer'>
-	<OPEN_API_parameter: #entityID schema: 'integer'>
+	<OPEN_API_parameter: #entityFMID schema: 'integer'>
 	| entity metaProperties attributes |
 	entity := self retrieveEntity: aRequest.
 	metaProperties := entity mooseDescription allPrimitiveProperties 
@@ -104,14 +104,14 @@ MRAPIModel class >> entityChildren: aRequest [
 	"Return the children of an entity"
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
-	'model/<modelID>/entity/<entityID>/children'>
+	'model/<modelID>/entity/<entityFMID>/children'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array>
 	<OPEN_API_parameter: #modelID schema: 'integer'>
-	<OPEN_API_parameter: #entityID schema: 'integer'>
+	<OPEN_API_parameter: #entityFMID schema: 'integer'>
 	| model entityID |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
-	entityID := (aRequest at: #entityID) asInteger.
+	entityID := (aRequest at: #entityFMID) asInteger.
 	^ MROutput json value: (TeaResponse ok body:
 			   (model detect: [ :el | el mooseID = entityID ]) children)
 ]
@@ -122,11 +122,11 @@ MRAPIModel class >> entitySourceCode: aRequest [
 	"Return the source code of an entity"
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
-	'model/<modelID>/entity/<entityID>/sourceCode'>
+	'model/<modelID>/entity/<entityFMID>/sourceCode'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#object>
 	<OPEN_API_parameter: #modelID schema: 'integer'>
-	<OPEN_API_parameter: #entityID schema: 'integer'>
+	<OPEN_API_parameter: #entityFMID schema: 'integer'>
 	| entity |
 	entity := self retrieveEntity: aRequest.
 
