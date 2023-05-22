@@ -12,7 +12,7 @@ MRAPIModel class >> entities: aRequest [
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
 	'model/<modelID>/entities'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
-	#array>
+	#array items: #MRModelEntityBasicInformation>
 	<OPEN_API_parameter: #modelID schema: 'integer'>
 	| model pageNumber numberOfItems |
 	pageNumber := (aRequest queryOrFormParam: #page ifAbsent: [ 0 ])
@@ -21,9 +21,10 @@ MRAPIModel class >> entities: aRequest [
 		                  queryOrFormParam: #numberOfItems
 		                  ifAbsent: [ 15 ]) asInteger.
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
-	^ MROutput json value: (TeaResponse ok body: (model entities
-				    copyFrom: numberOfItems * pageNumber + 1
-				    to: numberOfItems * (pageNumber + 1)))
+	^ TeaOutput json value: (TeaResponse ok body: ((model entities
+				     copyFrom: numberOfItems * pageNumber + 1
+				     to: numberOfItems * (pageNumber + 1)) collect: [ :each | 
+				    MRModelEntityBasicInformation from: each ]))
 ]
 
 { #category : #api }
@@ -34,7 +35,7 @@ MRAPIModel class >> entitiesOfType: aRequest [
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
 	'model/<modelID>/entities/types/<type>'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
-	#array>
+	#array items: #MRModelEntityBasicInformation>
 	<OPEN_API_parameter: #modelID schema: 'integer'>
 	<OPEN_API_parameter: #type schema: 'string'>
 	| model pageNumber numberOfItems type |
@@ -48,9 +49,10 @@ MRAPIModel class >> entitiesOfType: aRequest [
 
 	^ MROutput json value:
 		  (TeaResponse ok body:
-			   ((model allWithType: type) asOrderedCollection
-				    copyFrom: numberOfItems * pageNumber + 1
-				    to: numberOfItems * (pageNumber + 1)))
+			   (((model allWithType: type) asOrderedCollection
+				     copyFrom: numberOfItems * pageNumber + 1
+				     to: numberOfItems * (pageNumber + 1)) collect: [ :each | 
+				    MRModelEntityBasicInformation from: each ]))
 ]
 
 { #category : #api }
@@ -61,15 +63,15 @@ MRAPIModel class >> entity: aRequest [
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
 	'model/<modelID>/entity/<entityFMID>'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
-	#object>
+	#MRModelEntityBasicInformation>
 	<OPEN_API_parameter: #modelID schema: 'integer'>
 	<OPEN_API_parameter: #entityFMID schema: 'integer'>
 	| model entityID |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
 	entityID := (aRequest at: #entityFMID) asInteger.
-	^ MROutput json value:
-		  (TeaResponse ok body:
-			   (model detect: [ :el | el mooseID = entityID ]))
+	^ TeaOutput json value:
+		  (TeaResponse ok body: (MRModelEntityBasicInformation from:
+				    (model detect: [ :el | el mooseID = entityID ])))
 ]
 
 { #category : #api }
