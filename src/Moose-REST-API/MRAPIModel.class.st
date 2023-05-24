@@ -7,13 +7,15 @@ Class {
 { #category : #api }
 MRAPIModel class >> entities: aRequest [
 
-	"Return the list of entities of the model"
+	"Return the list of entities of the model. This endpoint is paginated using the param numberOfItems and page"
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
 	'model/<modelID>/entities'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array items: #MRModelEntityBasicInformation>
 	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
+	<OPEN_API_Query_parameter: #numberOfItems schema: 'integer' description: #'The number of itemms the endpoint should return'>
+	<OPEN_API_Query_parameter: #page schema: 'integer' description: #'The page number of the paginated return'>
 	| model pageNumber numberOfItems |
 	pageNumber := (aRequest queryOrFormParam: #page ifAbsent: [ 0 ])
 		              asInteger.
@@ -38,6 +40,8 @@ MRAPIModel class >> entitiesOfType: aRequest [
 	#array items: #MRModelEntityBasicInformation>
 	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
 	<OPEN_API_parameter: #type schema: 'string' description: #'The **implementation name** of the type such as: `FamixStClass`, `FamixJavaMethod` and so on'>
+	<OPEN_API_Query_parameter: #numberOfItems schema: 'integer' description: #'The number of itemms the endpoint should return'>
+	<OPEN_API_Query_parameter: #page schema: 'integer' description: #'The page number of the paginated return'>
 	| model pageNumber numberOfItems type |
 	pageNumber := (aRequest queryOrFormParam: #page ifAbsent: [ 0 ])
 		              asInteger.
@@ -181,6 +185,8 @@ MRAPIModel class >> subTypesOf: aRequest [
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array>
 	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
+	<OPEN_API_Query_parameter: #numberOfItems schema: 'integer' description: #'The number of itemms the endpoint should return'>
+	<OPEN_API_Query_parameter: #page schema: 'integer' description: #'The page number of the paginated return'>
 	| model pageNumber numberOfItems class result |
 	pageNumber := (aRequest queryOrFormParam: #page ifAbsent: [ 0 ])
 		              asInteger.
