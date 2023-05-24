@@ -63,9 +63,11 @@ MRAPIModel class >> entity: aRequest [
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
 	'model/<modelID>/entity/<entityFMID>'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
-	#MRModelEntityBasicInformation>
-	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
-	<OPEN_API_parameter: #entityFMID schema: 'integer' description: #'The fmid of the entity (internal model identification number)'>
+	#object model: #MRModelEntityBasicInformation>
+	<OPEN_API_parameter: #modelID schema: 'integer' description:
+	#'The id of the model you want to query'>
+	<OPEN_API_parameter: #entityFMID schema: 'integer' description:
+	#'The fmid of the entity (internal model identification number)'>
 	| model entityID |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
 	entityID := (aRequest at: #entityFMID) asInteger.
@@ -126,22 +128,27 @@ MRAPIModel class >> entitySourceCode: aRequest [
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
 	'model/<modelID>/entity/<entityFMID>/sourceCode'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
-	#object>
-	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
-	<OPEN_API_parameter: #entityFMID schema: 'integer' description: #'The fmid of the entity (internal model identification number)'>
+	#object model: #MRModelSourceCode>
+	<OPEN_API_parameter: #modelID schema: 'integer' description:
+	#'The id of the model you want to query'>
+	<OPEN_API_parameter: #entityFMID schema: 'integer' description:
+	#'The fmid of the entity (internal model identification number)'>
 	| entity |
 	entity := self retrieveEntity: aRequest.
 
-	^ MROutput json value: (TeaResponse ok body: { 
-				   ('body' -> (entity sourceAnchor
-					     ifNotNil: [ :anchor | anchor sourceText ]
-					     ifNil: [ 'No available text' ])).
-				   (#file -> ([ 
-				     entity sourceAnchor
-					     ifNotNil: [ :anchor | anchor fileName ]
-					     ifNil: [ 'No link' ] ]
-					     on: Error
-					     do: [ 'No file Access' ])) } asDictionary)
+	^ TeaOutput json value: (TeaResponse ok
+			   body: (MRModelSourceCode new
+					    fileName: ([ 
+						     entity sourceAnchor
+							     ifNotNil: [ :anchor | anchor fileName ]
+							     ifNil: [ 'No link' ] ]
+							     on: Error
+							     do: [ 'No file Access' ]);
+					    sourceCode: (entity sourceAnchor
+							     ifNotNil: [ :anchor | anchor sourceText ]
+							     ifNil: [ 'No available text' ]);
+					    yourself);
+			   yourself)
 ]
 
 { #category : #'api - tree' }
