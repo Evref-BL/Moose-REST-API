@@ -109,7 +109,7 @@ MRAPIModel class >> entityAttributes: aRequest [
 { #category : #api }
 MRAPIModel class >> entityChildren: aRequest [
 
-	"Return the children of an entity"
+	"Return the children entities of the entity with number entityFMID of the model indexed modelID"
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
 	'model/<modelID>/entity/<entityFMID>/children'>
