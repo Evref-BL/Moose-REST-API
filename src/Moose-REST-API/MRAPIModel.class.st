@@ -32,7 +32,7 @@ MRAPIModel class >> entities: aRequest [
 { #category : #api }
 MRAPIModel class >> entitiesOfType: aRequest [
 
-	"I return the list of entity of a specific type. This endpoint is paginated using the param numberOfItems and page. You might increase the numberOfItems to see or change the page to explore more entities."
+	"Search all entities using their implementation name. This endpoint is paginated using the param numberOfItems and page. You might increase the numberOfItems to see or change the page to explore more entities."
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
 	'model/<modelID>/entities/type/<type>'>
