@@ -7,16 +7,16 @@ Class {
 { #category : #'as yet unclassified' }
 MRAPIModelMeta class >> modelMeta: aRequest [
 
-	"I return some meta information about a model such as its name or size."
+	"I return basic information about a model such as its name or the total number entities inside the model."
 
-	<REST_API: 'GET' versions: #( 'v1' ) pattern: 'model/<modelID>/meta'>
+	<REST_API: 'GET' versions: #( 'v1' ) pattern: 'model/<modelID>'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
-	#object model: #MRModelMetaInformation>
+	#object model: #MRModelInformation>
 	<OPEN_API_parameter: #modelID schema: 'integer'>
 	| model |
 	model := MooseModel root at: (aRequest at: #modelID) asInteger.
 	^ TeaOutput json value:
-		  (TeaResponse ok body: (MRModelMetaInformation new
+		  (TeaResponse ok body: (MRModelInformation new
 				    size: model size;
 				    name: model name;
 				    id: (aRequest at: #modelID) asInteger;
@@ -29,7 +29,7 @@ MRAPIModelMeta class >> modelMetaEntityTypes: aRequest [
 	"I return the kind of entities present in a model. For instance, one can know if a model is composed of classes, methods, traces, GUI information, and so on."
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
-	'model/<modelID>/meta/entityTypes'>
+	'model/<modelID>/entityTypes'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array items: #MRModelMetaClassModel>
 	<OPEN_API_parameter: #modelID schema: 'integer'>

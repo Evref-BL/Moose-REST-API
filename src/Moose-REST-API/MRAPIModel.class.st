@@ -32,16 +32,20 @@ MRAPIModel class >> entities: aRequest [
 { #category : #api }
 MRAPIModel class >> entitiesOfType: aRequest [
 
-	"I return the list of entity of a specific type."
+	"I return the list of entity of a specific type. This endpoint is paginated using the param numberOfItems and page. You might increase the numberOfItems to see or change the page to explore more entities."
 
 	<REST_API: 'GET' versions: #( 'v1' ) pattern:
 	'model/<modelID>/entities/type/<type>'>
 	<OPEN_API_RESPONSE: #'200' description: 'OK' mediaType: #json schema:
 	#array items: #MRModelEntityBasicInformation>
-	<OPEN_API_parameter: #modelID schema: 'integer' description: #'The id of the model you want to query'>
-	<OPEN_API_parameter: #type schema: 'string' description: #'The **implementation name** of the type such as: `FamixStClass`, `FamixJavaMethod` and so on'>
-	<OPEN_API_Query_parameter: #numberOfItems schema: 'integer' description: #'The number of itemms the endpoint should return'>
-	<OPEN_API_Query_parameter: #page schema: 'integer' description: #'The page number of the paginated return'>
+	<OPEN_API_parameter: #modelID schema: 'integer' description:
+	#'The id of the model you want to query'>
+	<OPEN_API_parameter: #type schema: 'string' description:
+	#'The **implementation name** of the type such as: `FamixStClass`, `FamixJavaMethod` and so on'>
+	<OPEN_API_Query_parameter: #numberOfItems schema: 'integer'
+	description: #'The number of itemms the endpoint should return'>
+	<OPEN_API_Query_parameter: #page schema: 'integer' description:
+	#'The page number of the paginated return'>
 	| model pageNumber numberOfItems type |
 	pageNumber := (aRequest queryOrFormParam: #page ifAbsent: [ 0 ])
 		              asInteger.

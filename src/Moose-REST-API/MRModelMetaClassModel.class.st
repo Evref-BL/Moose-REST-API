@@ -19,7 +19,7 @@ MRModelMetaClassModel >> implementationName [
 
 	"I am the concrete name of the concept. You might use me in other API endpoints"
 
-	<OPEN_API_variable: #name type: #string>
+	<OPEN_API_variable: #implementationName type: #string>
 	^ implementationName
 ]
 

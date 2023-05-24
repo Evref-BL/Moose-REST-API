@@ -1,5 +1,5 @@
 Class {
-	#name : #MRModelMetaInformation,
+	#name : #MRModelInformation,
 	#superclass : #MRModelMinimalInformation,
 	#instVars : [
 		'size'
@@ -8,13 +8,13 @@ Class {
 }
 
 { #category : #accessing }
-MRModelMetaInformation class >> neoJsonMapping: mapper [
+MRModelInformation class >> neoJsonMapping: mapper [
 
 	mapper for: self do: [ :mapping | mapping mapAllInstVars ]
 ]
 
 { #category : #accessing }
-MRModelMetaInformation >> size1 [
+MRModelInformation >> size1 [
 
 	"I represent the number of elements inside the model"
 
@@ -23,7 +23,7 @@ MRModelMetaInformation >> size1 [
 ]
 
 { #category : #accessing }
-MRModelMetaInformation >> size: anObject [
+MRModelInformation >> size: anObject [
 
 	size := anObject
 ]
