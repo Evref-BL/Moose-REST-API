@@ -43,7 +43,7 @@ MRAPIModel class >> entitiesOfType: aRequest [
 	<OPEN_API_parameter: #type schema: 'string' description:
 	#'The **implementation name** of the type such as: `FamixStClass`, `FamixJavaMethod` and so on'>
 	<OPEN_API_Query_parameter: #numberOfItems schema: 'integer'
-	description: #'The number of itemms the endpoint should return'>
+	description: #'The number of items the endpoint should return'>
 	<OPEN_API_Query_parameter: #page schema: 'integer' description:
 	#'The page number of the paginated return'>
 	| model pageNumber numberOfItems type |
