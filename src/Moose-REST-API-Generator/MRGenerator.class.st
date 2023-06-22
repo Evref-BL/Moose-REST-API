@@ -55,7 +55,7 @@ MRGenerator >> generateAllMethodFor: aClass basedOn: aFM3Class [
 
 	<REST_API: ''GET'' versions: #( ''v1'' ) pattern: ''model/{modelName}/{pathName}''>
 	<OPEN_API_RESPONSE: #''200'' description: ''OK'' mediaType: #json schema: #array items: #{concreteClass}>
-	^ TeaOutput json value: (TeaResponse ok body: ((MooseModel root detect: [ :aModel | aModel name = ''{modelName}'' ]) allWithType: {concreteClass}))' format:
+	^ TeaOutput json value: (TeaResponse ok body: (((MooseModel root detect: [ :aModel | aModel name = ''{modelName}'' ]) allWithType: {concreteClass}) asOrderedCollection))' format:
 			 (self formatDictionaryFor: aFM3Class inModel: self model))
 ]
 
@@ -86,7 +86,7 @@ MRGenerator >> generateNeoJsonMappingBasedOn: aFM3Class [
 		(String streamContents: [ :stream | 
 			 stream << 'neoJsonMapping: mapper
 
-	mapper for: self do: [ :mapping | mapping mapInstVars: #( mooseID '.
+	mapper for: self do: [ :mapping | mapping mapAccessors: #( mooseID '.
 			 aFM3Class allPrimitiveProperties
 				 do: [ :property | 
 					 stream
