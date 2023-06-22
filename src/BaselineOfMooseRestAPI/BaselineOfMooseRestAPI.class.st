@@ -55,5 +55,8 @@ BaselineOfMooseRestAPI >> definePackages: spec [
 
 	spec
 		package: 'Moose-REST-API'
-		with: [ spec requires: #( 'Tealight' ) ]
+		with: [ spec requires: #( 'Tealight' ) ].
+	spec
+		package: 'Moose-REST-API-Generator'
+		with: [ spec requires: #( 'Moose-REST-API' ) ]
 ]

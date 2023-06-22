@@ -6,6 +6,7 @@ Class {
 
 { #category : #'class initialization' }
 MRAPI class >> initialize [
+
 	TLRESTApiURLPathBuilder useAPIPrefix: '/moose'.
 	TLRESTAPIBuilder buildAPI
 ]
@@ -18,6 +19,7 @@ MRAPI class >> inspect [
 
 { #category : #'class initialization' }
 MRAPI class >> reset [
+
 	<script>
 	TLWebserver teapot removeAllDynamicRoutes
 ]
