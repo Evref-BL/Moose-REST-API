@@ -9,10 +9,17 @@ Class {
 		'packageName',
 		'model',
 		'withRootAPI',
-		'rootClass'
+		'rootClass',
+		'apiBuilder'
 	],
 	#category : #'Moose-REST-API-Generator'
 }
+
+{ #category : #generate }
+MRGenerator >> apiClassBuilderName [
+
+	^ self prefix , 'VersionedRESTAPIBuilder'
+]
 
 { #category : #accessing }
 MRGenerator >> beWithRootAPI [
@@ -37,13 +44,26 @@ MRGenerator >> formatDictionaryFor: aFM3Class inModel: aMooseModel [
 { #category : #visiting }
 MRGenerator >> generate [
 
-	"self withRootAPI
+	self withRootAPI
 		ifTrue: [ self generateRootAPI ]
-		ifFalse: [ rootClass := MRAPI ]."
+		ifFalse: [ rootClass := MRAPI ].
+	self generateAPIBuilder.
 
-	rootClass := MRAPI.
 	self model metamodel classes do: [ :aFM3Class | 
 		self visitClass: aFM3Class ]
+]
+
+{ #category : #generate }
+MRGenerator >> generateAPIBuilder [
+
+	apiBuilder := (TLVersionedRESTAPIBuilder << self apiClassBuilderName)
+		              package: self packageName;
+		              install.
+	apiBuilder compile: ('allPragmas
+
+	^ super allPragmas select: [ :pragma | pragma methodClass instanceSide inheritsFrom: {rootAPIClassName} ]' 
+			 format:
+			 (Dictionary with: #rootAPIClassName -> self rootAPIClassName))
 ]
 
 { #category : #generate }
@@ -99,17 +119,18 @@ MRGenerator >> generateNeoJsonMappingBasedOn: aFM3Class [
 { #category : #generate }
 MRGenerator >> generateRootAPI [
 
-	rootClass := (Object << (self prefix , 'RootAPI'))
+	rootClass := (Object << self rootAPIClassName)
 		             package: self packageName;
 		             install.
 	rootClass class compile: 'reset
 
 	<script>
 	TLWebserver teapot removeAllDynamicRoutes'.
-	rootClass class compile: 'initialize
+	rootClass class compile: ('initialize
 
 	TLRESTApiURLPathBuilder withoutPrefix.
-	TLRESTAPIBuilder buildAPI'
+	{apiClassBuilder} buildAPI' format:
+			 (Dictionary with: #apiClassBuilder -> self apiClassBuilderName))
 ]
 
 { #category : #visiting }
@@ -153,6 +174,12 @@ MRGenerator >> prefix [
 MRGenerator >> prefix: anObject [
 
 	prefix := anObject
+]
+
+{ #category : #generate }
+MRGenerator >> rootAPIClassName [
+
+	^ self prefix , 'RootAPI'
 ]
 
 { #category : #visiting }
