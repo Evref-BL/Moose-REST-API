@@ -60,8 +60,10 @@ MRGenerator >> generateAPIBuilder [
 		              package: self packageName;
 		              install.
 	apiBuilder compile: ('allPragmas
-
-	^ super allPragmas select: [ :pragma | pragma methodClass instanceSide inheritsFrom: {rootAPIClassName} ]' 
+	
+	^ super allPragmas select: [ :pragma | 
+	  pragma methodClass instanceSide = {rootAPIClassName} or: [ 
+		  pragma methodClass instanceSide inheritsFrom: {rootAPIClassName} ] ]' 
 			 format:
 			 (Dictionary with: #rootAPIClassName -> self rootAPIClassName))
 ]
@@ -86,11 +88,11 @@ MRGenerator >> generateIdMethodFor: aClass basedOn: aFM3Class [
 	
 	"An endpoint to access a {conceptName} in the {modelName} model using its id"
 
-	<REST_API: ''GET'' versions: #( ''v1'' ) pattern: ''model/{modelName}/{pathName}/<entityFMID>''>
-	<OPEN_API_parameter: #entityFMID schema: ''integer'' description: #''The fmid of the entity (internal model identification number)''>
+	<REST_API: ''GET'' versions: #( ''v1'' ) pattern: ''model/{modelName}/{pathName}/<mooseID>''>
+	<OPEN_API_parameter: #mooseID schema: ''integer'' description: #''The mooseID of the entity (moose identification number)''>
 	<OPEN_API_RESPONSE: #''200'' description: ''OK'' mediaType: #json schema: #object model: #{concreteClass}>
 	| entityID |
-	entityID := (aRequest at: #entityFMID) asInteger.
+	entityID := (aRequest at: #mooseID) asInteger.
 	^ TeaOutput json value: (TeaResponse ok body: ((MooseModel root detect: [ :aModel | aModel name = ''{modelName}'' ]) 
 		  detect: [ :entity | entity mooseID = entityID ]))' format:
 			 (self formatDictionaryFor: aFM3Class inModel: self model))
@@ -130,7 +132,25 @@ MRGenerator >> generateRootAPI [
 
 	TLRESTApiURLPathBuilder withoutPrefix.
 	{apiClassBuilder} buildAPI' format:
-			 (Dictionary with: #apiClassBuilder -> self apiClassBuilderName))
+			 (Dictionary with: #apiClassBuilder -> self apiClassBuilderName)).
+			
+	rootClass class compile: ('api: aRequest
+
+	"Return the OpenAPI documentation of the current teapot instance"
+
+	<REST_API: ''GET'' versions: #( ''v1'' ) pattern: ''api''>
+	<OPEN_API_RESPONSE: #''200'' description: ''OK'' mediaType: #json schema:
+	#object>
+	| creator api |
+	creator := OpenAPICreator new.
+	creator teapotInstance: TLWebserver teapot.
+	creator version: ''3.0.0''.
+	creator description: ''An API to request Moose model''.
+	creator title: ''Moose API''.
+	api := creator buildOpenAPI.
+
+
+	^ TeaOutput json value: (TeaResponse ok body: api)')
 ]
 
 { #category : #visiting }
