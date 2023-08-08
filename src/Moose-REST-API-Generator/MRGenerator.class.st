@@ -75,7 +75,7 @@ MRGenerator >> generateAllMethodFor: aClass basedOn: aFM3Class [
 
 	aClass class compile: ('all: aRequest
 	
-	"An endpoint to access all {conceptName}"
+	"An endpoint to access an array of {conceptName}"
 
 	<REST_API: ''GET'' versions: #( ''v1'' ) pattern: ''model/{modelName}/{pathName}''>
 	<OPEN_API_RESPONSE: #''200'' description: ''OK'' mediaType: #json schema: #array items: #{concreteClass}>
