@@ -49,7 +49,9 @@ MRGenerator >> generate [
 		ifFalse: [ rootClass := MRAPI ].
 	self generateAPIBuilder.
 
-	self model metamodel classes do: [ :aFM3Class | 
+	(self model metamodel classes reject: [ :aFM3Class | 
+		 aFM3Class allSuperclasses anySatisfy: [ :sup | 
+			 sup fullName = #'Moose.Group' ] ]) do: [ :aFM3Class | 
 		self visitClass: aFM3Class ]
 ]
 
@@ -73,7 +75,7 @@ MRGenerator >> generateAllMethodFor: aClass basedOn: aFM3Class [
 
 	aClass class compile: ('all: aRequest
 	
-	"An endpoint to access all {conceptName} in the {modelName} model"
+	"An endpoint to access all {conceptName}"
 
 	<REST_API: ''GET'' versions: #( ''v1'' ) pattern: ''model/{modelName}/{pathName}''>
 	<OPEN_API_RESPONSE: #''200'' description: ''OK'' mediaType: #json schema: #array items: #{concreteClass}>
@@ -86,7 +88,7 @@ MRGenerator >> generateIdMethodFor: aClass basedOn: aFM3Class [
 
 	aClass class compile: ('id: aRequest
 	
-	"An endpoint to access a {conceptName} in the {modelName} model using its id"
+	"An endpoint to access a {conceptName} using its id"
 
 	<REST_API: ''GET'' versions: #( ''v1'' ) pattern: ''model/{modelName}/{pathName}/<mooseID>''>
 	<OPEN_API_parameter: #mooseID schema: ''integer'' description: #''The mooseID of the entity (moose identification number)''>
@@ -133,8 +135,8 @@ MRGenerator >> generateRootAPI [
 	TLRESTApiURLPathBuilder withoutPrefix.
 	{apiClassBuilder} buildAPI' format:
 			 (Dictionary with: #apiClassBuilder -> self apiClassBuilderName)).
-			
-	rootClass class compile: ('api: aRequest
+
+	rootClass class compile: 'api: aRequest
 
 	"Return the OpenAPI documentation of the current teapot instance"
 
@@ -150,7 +152,10 @@ MRGenerator >> generateRootAPI [
 	api := creator buildOpenAPI.
 
 
-	^ TeaOutput json value: (TeaResponse ok body: api)')
+	^ TeaOutput json value: (TeaResponse ok body: api)'.
+	rootClass class compile: 'inspect
+	<script>
+	TLWebserver teapot inspect'
 ]
 
 { #category : #visiting }
