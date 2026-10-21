@@ -23,6 +23,13 @@ Class {
 	#tag : 'Core'
 }
 
+{ #category : 'instance creation' }
+MGRegistry class >> forModel: aMooseModel [
+	"A registry whose model snapshot is only aMooseModel (used by the model-specific schema)"
+
+	^ self new useModels: { aMooseModel }
+]
+
 { #category : 'entities' }
 MGRegistry >> allEntitiesType: aStringOrNil [
 	"Entities of all models matching aStringOrNil"
@@ -129,6 +136,17 @@ MGRegistry >> entityAt: anId [
 		default: nil
 ]
 
+{ #category : 'accessing - concepts' }
+MGRegistry >> entityAt: anId ofAnyOf: someFM3Classes [
+	"Entity for anId (see #entityAt:) when its metadescription is one of someFM3Classes, nil otherwise"
+
+	^ (self entityAt: anId) ifNotNil: [ :entity |
+			  (MGSafe
+				   do: [
+				   someFM3Classes includes: (self metadescriptionOf: entity) ]
+				   default: false) ifTrue: [ entity ] ]
+]
+
 { #category : 'entities' }
 MGRegistry >> entityIndexOf: aMooseModel [
 	"Lazily built Dictionary mooseID -> entity for aMooseModel"
@@ -222,6 +240,24 @@ MGRegistry >> instancesOf: anFM3Class model: aMooseModel [
 	^ MGSafe
 		do: [ (self instancesIndexOf: aMooseModel) at: anFM3Class ifAbsent: [ OrderedCollection new ] ]
 		default: [ OrderedCollection new ]
+]
+
+{ #category : 'accessing - concepts' }
+MGRegistry >> instancesOfAll: someFM3Classes model: aMooseModel take: aTakeOrNil [
+	"At most aTakeOrNil (normalized) entities of aMooseModel whose metadescription is one of someFM3Classes, in the order of someFM3Classes"
+
+	| limit result |
+	limit := MGSafe normalizeTake: aTakeOrNil.
+	limit = 0 ifTrue: [ ^ #(  ) ].
+	result := OrderedCollection new.
+	[
+		someFM3Classes do: [ :each |
+				(self instancesOf: each model: aMooseModel) do: [ :entity |
+						result add: entity.
+						result size >= limit ifTrue: [ ^ result asArray ] ] ] ]
+		on: Error
+		do: [ :e | e return: nil ].
+	^ result asArray
 ]
 
 { #category : 'properties' }

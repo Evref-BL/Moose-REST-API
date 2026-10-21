@@ -15,7 +15,8 @@ Class {
 	#name : 'MGServer',
 	#superclass : 'Object',
 	#classVars : [
-		'Current'
+		'Current',
+		'CurrentModel'
 	],
 	#category : 'Moose-GraphQL-Server',
 	#package : 'Moose-GraphQL',
@@ -26,6 +27,13 @@ Class {
 MGServer class >> current [
 	"The running GQLHttpServer, or nil"
 	^ Current
+]
+
+{ #category : 'accessing' }
+MGServer class >> currentModel [
+	"The Moose model served in model mode, or nil (generic mode or no server)"
+
+	^ CurrentModel
 ]
 
 { #category : 'accessing' }
@@ -48,6 +56,19 @@ MGServer class >> isRunning [
 ]
 
 { #category : 'starting' }
+MGServer class >> restart [
+	"Restart on the same port (default port when not running), rebuilding the schema: in model mode the concepts are recomputed from the current model types"
+
+	| port model |
+	port := (Current ifNotNil: [ :server | MGSafe do: [ server port ] default: nil ])
+		        ifNil: [ self defaultPort ].
+	model := CurrentModel.
+	^ model
+		  ifNil: [ self startOn: port ]
+		  ifNotNil: [ self startOn: port model: model ]
+]
+
+{ #category : 'starting' }
 MGServer class >> start [
 	"Start on the default port (4000)"
 	^ self startOn: self defaultPort
@@ -55,20 +76,57 @@ MGServer class >> start [
 
 { #category : 'starting' }
 MGServer class >> startOn: aPort [
-	"Stop any running server and start a new one on aPort serving MGSchema default"
+	"Stop any running server and start a new one on aPort serving MGSchema default (generic mode)"
+
+	^ self
+		  startOn: aPort
+		  schema: MGSchema default
+		  contextBlock: [ :request | MGRegistry new ]
+]
+
+{ #category : 'starting' }
+MGServer class >> startOn: aPort model: aMooseModel [
+	"Stop any running server and start a new one on aPort whose GraphQL concepts are the entity types of aMooseModel (model mode).
+	The schema is a snapshot of the model types: use #restart after the model changed.
+	The schema is built first: when aMooseModel has no entity to expose, MGEmptyModelError is signaled and any running server is left untouched."
+
+	| schema server |
+	schema := MGModelSchemaBuilder buildFor: aMooseModel.
+	server := self
+		          startOn: aPort
+		          schema: schema
+		          contextBlock: [ :request |
+		          MGRegistry forModel: aMooseModel ].
+	CurrentModel := aMooseModel.
+	^ server
+]
+
+{ #category : 'private' }
+MGServer class >> startOn: aPort schema: aGQLSchema contextBlock: aBlock [
+	"Stop any running server (which clears CurrentModel) and start a new one on aPort serving aGQLSchema, each request getting the context answered by aBlock"
+
 	| serverClass server |
 	serverClass := self httpServerClass ifNil: [
 		^ self error: 'GQLHttpServer is not available: load the GraphQL HTTP server first' ].
 	self stop.
-	server := serverClass on: aPort schema: MGSchema default.
-	server contextBlock: [ :request | MGRegistry new ].
+	server := serverClass on: aPort schema: aGQLSchema.
+	server contextBlock: aBlock.
 	server start.
 	^ Current := server
 ]
 
 { #category : 'starting' }
+MGServer class >> startOnModel: aMooseModel [
+	"Start on the default port (4000) in model mode, see #startOn:model:"
+
+	^ self startOn: self defaultPort model: aMooseModel
+]
+
+{ #category : 'stopping' }
 MGServer class >> stop [
 	"Stop the running server, if any (never raises)"
+
+	CurrentModel := nil.
 	Current ifNil: [ ^ self ].
 	[ Current stop ] on: Error do: [ :e | e return: nil ].
 	Current := nil
