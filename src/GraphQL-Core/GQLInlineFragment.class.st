@@ -11,6 +11,17 @@ Class {
 	#tag : 'AST'
 }
 
+{ #category : 'execution' }
+GQLInlineFragment >> collectFieldsFor: anObjectType visited: aVisitedSet into: aGroupedDictionary path: aPath executor: anExecutor [
+
+	^ anExecutor
+		  collectInlineFragment: self
+		  objectType: anObjectType
+		  visited: aVisitedSet
+		  into: aGroupedDictionary
+		  path: aPath
+]
+
 { #category : 'accessing' }
 GQLInlineFragment >> directives [
 

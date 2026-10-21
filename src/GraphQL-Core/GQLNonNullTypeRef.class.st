@@ -62,3 +62,9 @@ GQLNonNullTypeRef >> printOn: aStream [
 
 	aStream print: ofType; nextPut: $!
 ]
+
+{ #category : 'resolving' }
+GQLNonNullTypeRef >> resolveIn: aSchema [
+
+	^ GQLNonNullType of: (aSchema resolveTypeRef: ofType)
+]

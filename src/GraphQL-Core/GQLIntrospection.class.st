@@ -184,7 +184,7 @@ GQLIntrospection >> enumValueType [
 					  field: 'isDeprecated'
 					  type: 'Boolean!'
 					  description: nil
-					  resolve: [ :value | value isDeprecated == true ].
+					  resolve: [ :value | value isDeprecated ].
 				  f
 					  field: 'deprecationReason'
 					  type: 'String'
@@ -197,8 +197,8 @@ GQLIntrospection >> enumValuesOf: aType includeDeprecated: aBoolean [
 	"Answer the values of aType (nil unless it is an enum type)"
 
 	aType isEnum ifFalse: [ ^ nil ].
-	^ (aType values reject: [ :each |
-		   aBoolean not and: [ each isDeprecated == true ] ]) asArray
+	^ (aType values select: [ :each |
+		   aBoolean or: [ each isDeprecated not ] ]) asArray
 ]
 
 { #category : 'types' }
@@ -235,7 +235,7 @@ GQLIntrospection >> fieldType [
 					  field: 'isDeprecated'
 					  type: 'Boolean!'
 					  description: nil
-					  resolve: [ :field | field isDeprecated == true ].
+					  resolve: [ :field | field isDeprecated ].
 				  f
 					  field: 'deprecationReason'
 					  type: 'String'
@@ -248,9 +248,9 @@ GQLIntrospection >> fieldsOf: aType includeDeprecated: aBoolean [
 	"Answer the introspectable fields of aType (nil unless it is an object type): meta fields (named __*) are hidden"
 
 	aType isObject ifFalse: [ ^ nil ].
-	^ (aType fields values reject: [ :each |
-			   (self class isIntrospectionName: each name) or: [
-				   aBoolean not and: [ each isDeprecated == true ] ] ]) asArray
+	^ (aType fields values select: [ :each |
+			   (self class isIntrospectionName: each name) not and: [
+				   aBoolean or: [ each isDeprecated not ] ] ]) asArray
 ]
 
 { #category : 'private' }
@@ -262,10 +262,11 @@ GQLIntrospection >> includeDeprecatedArgument [
 
 { #category : 'private' }
 GQLIntrospection >> includeDeprecatedIn: anArgsDictionary [
+	"The includeDeprecated argument is coerced by the Boolean scalar: it is true, false, or nil when given as null (meaning false)"
 
-	^ anArgsDictionary notNil and: [
-		  (anArgsDictionary at: 'includeDeprecated' ifAbsent: [ false ])
-		  == true ]
+	anArgsDictionary ifNil: [ ^ false ].
+	^ (anArgsDictionary at: 'includeDeprecated' ifAbsent: [ nil ])
+		  ifNil: [ false ]
 ]
 
 { #category : 'types' }
@@ -379,8 +380,7 @@ GQLIntrospection >> object: aName description: aDescription fields: aBlock [
 GQLIntrospection >> resolveTypesOf: aNamedType [
 	"Resolve the type references of the fields and arguments of aNamedType against my schema"
 
-	aNamedType isObject ifFalse: [ ^ self ].
-	aNamedType fields do: [ :each | each resolveTypeIn: schema ]
+	aNamedType resolveFieldTypesIn: schema
 ]
 
 { #category : 'accessing' }
@@ -516,10 +516,7 @@ Depending on the kind of a type, certain fields describe information about that 
 					  field: 'interfaces'
 					  type: '[__Type!]'
 					  description: nil
-					  resolve: [ :t |
-							  t isObject
-								  ifTrue: [ #(  ) ]
-								  ifFalse: [ nil ] ].
+					  resolve: [ :t | t interfaces ].
 				  f
 					  field: 'possibleTypes'
 					  type: '[__Type!]'

@@ -12,6 +12,30 @@ Class {
 	#tag : 'Parser'
 }
 
+{ #category : 'private' }
+GQLParser class >> keywordValueBuilders [
+	"Name -> block building the value node of the keywords true, false and null"
+
+	^ Dictionary new
+		  at: 'true' put: [ GQLBooleanValue value: true ];
+		  at: 'false' put: [ GQLBooleanValue value: false ];
+		  at: 'null' put: [ GQLNullValue new ];
+		  yourself
+]
+
+{ #category : 'private' }
+GQLParser class >> literalValueBuilders [
+	"Token kind -> selector building the value node of a literal token"
+
+	^ Dictionary new
+		  at: #int put: #intValueFrom:;
+		  at: #float put: #floatValueFrom:;
+		  at: #string put: #stringValueFrom:;
+		  at: #blockString put: #stringValueFrom:;
+		  at: #name put: #nameValueFrom:;
+		  yourself
+]
+
 { #category : 'parsing' }
 GQLParser class >> parse: aString [
 	"Parse aString as a GraphQL executable document. Signals GQLSyntaxError"
@@ -61,6 +85,32 @@ GQLParser >> expectKeyword: aString [
 
 	(lexer peek isName: aString) ifTrue: [ ^ lexer next ].
 	^ self error: 'Expected "' , aString , '"' found: lexer peek
+]
+
+{ #category : 'private - building' }
+GQLParser >> floatValueFrom: aToken [
+
+	^ self
+		  node: (GQLFloatValue value:
+				   (Number readFrom: aToken value asLowercase) asFloat)
+		  at: aToken
+]
+
+{ #category : 'private - building' }
+GQLParser >> intValueFrom: aToken [
+
+	^ self node: (GQLIntValue value: aToken value asInteger) at: aToken
+]
+
+{ #category : 'private - building' }
+GQLParser >> nameValueFrom: aToken [
+	"true, false and null are keywords; any other name is an enum value"
+
+	| builder |
+	builder := self class keywordValueBuilders
+		           at: aToken value
+		           ifAbsent: [ [ GQLEnumValue value: aToken value ] ].
+	^ self node: builder value at: aToken
 ]
 
 { #category : 'private - building' }
@@ -154,17 +204,14 @@ GQLParser >> parseFragment [
 
 	| start |
 	start := self expect: '...'.
-	(lexer peek kind = #name and: [ (lexer peek isName: 'on') not ]) ifTrue: [
-		^ (self node: GQLFragmentSpread new at: start)
-			  name: self parseFragmentName;
-			  directives: (self parseDirectivesConst: false);
-			  yourself ].
+	(lexer peek kind = #name and: [ (lexer peek isName: 'on') not ])
+		ifTrue: [
+				^ (self node: GQLFragmentSpread new at: start)
+					  name: self parseFragmentName;
+					  directives: (self parseDirectivesConst: false);
+					  yourself ].
 	^ (self node: GQLInlineFragment new at: start)
-		  typeCondition: ((lexer peek isName: 'on')
-				   ifTrue: [
-					   lexer next.
-					   self parseName ]
-				   ifFalse: [ nil ]);
+		  typeCondition: self parseTypeCondition;
 		  directives: (self parseDirectivesConst: false);
 		  selectionSet: self parseSelectionSet;
 		  yourself
@@ -286,6 +333,15 @@ GQLParser >> parseType [
 	^ type
 ]
 
+{ #category : 'private - parsing' }
+GQLParser >> parseTypeCondition [
+	"Parse an optional 'on Type' type condition; answer the type name or nil"
+
+	^ (lexer peek isName: 'on') ifTrue: [
+			  lexer next.
+			  self parseName ]
+]
+
 { #category : 'parsing' }
 GQLParser >> parseTypeRef: aString [
 
@@ -308,31 +364,29 @@ GQLParser >> parseValue: aString [
 
 { #category : 'private - parsing' }
 GQLParser >> parseValueConst: isConst [
+	"Composite values and variables are recognized by their punctuator, literals by their token kind"
 
 	| token |
 	token := lexer peek.
 	(token isPunct: '[') ifTrue: [ ^ self parseListConst: isConst ].
 	(token isPunct: '{') ifTrue: [ ^ self parseObjectConst: isConst ].
-	(token isPunct: '$') ifTrue: [
-		isConst ifTrue: [ ^ self unexpected: token ].
-		lexer next.
-		^ self node: (GQLVariableValue named: self parseName) at: token ].
-	token kind = #int ifTrue: [
-		lexer next.
-		^ self node: (GQLIntValue value: token value asInteger) at: token ].
-	token kind = #float ifTrue: [
-		lexer next.
-		^ self node: (GQLFloatValue value: (Number readFrom: token value asLowercase) asFloat) at: token ].
-	(token kind = #string or: [ token kind = #blockString ]) ifTrue: [
-		lexer next.
-		^ self node: (GQLStringValue value: token value) at: token ].
-	token kind = #name ifTrue: [
-		lexer next.
-		token value = 'true' ifTrue: [ ^ self node: (GQLBooleanValue value: true) at: token ].
-		token value = 'false' ifTrue: [ ^ self node: (GQLBooleanValue value: false) at: token ].
-		token value = 'null' ifTrue: [ ^ self node: GQLNullValue new at: token ].
-		^ self node: (GQLEnumValue value: token value) at: token ].
-	^ self unexpected: token
+	(token isPunct: '$') ifTrue: [ ^ self parseVariableConst: isConst ].
+	^ self
+		  perform: (self class literalValueBuilders
+				   at: token kind
+				   ifAbsent: [ ^ self unexpected: token ])
+		  with: lexer next
+]
+
+{ #category : 'private - parsing' }
+GQLParser >> parseVariableConst: isConst [
+	"Variables are not allowed in constant values (e.g. default values)"
+
+	| token |
+	token := lexer peek.
+	isConst ifTrue: [ ^ self unexpected: token ].
+	lexer next.
+	^ self node: (GQLVariableValue named: self parseName) at: token
 ]
 
 { #category : 'private - parsing' }
@@ -384,6 +438,12 @@ GQLParser >> skip: aString [
 	(lexer peek isPunct: aString) ifFalse: [ ^ false ].
 	lexer next.
 	^ true
+]
+
+{ #category : 'private - building' }
+GQLParser >> stringValueFrom: aToken [
+
+	^ self node: (GQLStringValue value: aToken value) at: aToken
 ]
 
 { #category : 'private - errors' }

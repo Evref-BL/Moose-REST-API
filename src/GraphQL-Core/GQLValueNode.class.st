@@ -23,6 +23,13 @@ GQLValueNode >> constValue [
 ]
 
 { #category : 'testing' }
+GQLValueNode >> hasValueIn: aDictionaryOrNil [
+	"Answer whether the receiver provides a value given the variables in aDictionaryOrNil. Literals always do"
+
+	^ true
+]
+
+{ #category : 'testing' }
 GQLValueNode >> isConstant [
 	"Answer true if this value does not reference any variable"
 

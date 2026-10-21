@@ -16,6 +16,13 @@ GQLVariableValue class >> named: aString [
 ]
 
 { #category : 'testing' }
+GQLVariableValue >> hasValueIn: aDictionaryOrNil [
+	"A variable provides a value only when it is defined (possibly as null) in aDictionaryOrNil"
+
+	^ self isDefinedIn: aDictionaryOrNil
+]
+
+{ #category : 'testing' }
 GQLVariableValue >> isConstant [
 
 	^ false

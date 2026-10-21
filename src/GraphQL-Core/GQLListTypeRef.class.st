@@ -56,3 +56,9 @@ GQLListTypeRef >> printOn: aStream [
 
 	aStream nextPut: $[; print: ofType; nextPut: $]
 ]
+
+{ #category : 'resolving' }
+GQLListTypeRef >> resolveIn: aSchema [
+
+	^ GQLListType of: (aSchema resolveTypeRef: ofType)
+]

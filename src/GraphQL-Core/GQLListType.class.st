@@ -17,6 +17,24 @@ GQLListType class >> of: aType [
 	^ self new ofType: aType; yourself
 ]
 
+{ #category : 'execution' }
+GQLListType >> coercePresentInputValue: aValue executor: anExecutor [
+
+	^ anExecutor coerceListInputValue: aValue type: self
+]
+
+{ #category : 'execution' }
+GQLListType >> completePresentValue: aResult fields: aFieldCollection path: aPath parentType: anObjectType fieldDefinition: aFieldDefinition executor: anExecutor [
+
+	^ anExecutor
+		  completeListValue: self
+		  fields: aFieldCollection
+		  result: aResult
+		  path: aPath
+		  parentType: anObjectType
+		  fieldDefinition: aFieldDefinition
+]
+
 { #category : 'testing' }
 GQLListType >> isLeaf [
 	^ false
@@ -39,12 +57,12 @@ GQLListType >> kind [
 
 { #category : 'literals' }
 GQLListType >> literalFor: aValue [
-	(aValue isNil or: [ aValue isString or: [ aValue isDictionary or: [ aValue isCollection not ] ] ])
-		ifTrue: [ ^ ofType literalFor: aValue ].
-	^ String streamContents: [ :s |
-		s nextPut: $[.
-		aValue do: [ :e | s nextPutAll: (ofType literalFor: e) ] separatedBy: [ s nextPutAll: ', ' ].
-		s nextPut: $] ]
+	"A single (non-collection) value is printed as a value of the item type"
+
+	^ (aValue isCollection and: [
+		   (aValue isString or: [ aValue isDictionary ]) not ])
+		  ifTrue: [ self class listLiteralFor: aValue itemType: ofType ]
+		  ifFalse: [ ofType literalFor: aValue ]
 ]
 
 { #category : 'accessing' }

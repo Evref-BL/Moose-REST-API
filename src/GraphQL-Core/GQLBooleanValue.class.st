@@ -9,5 +9,5 @@ Class {
 { #category : 'printing' }
 GQLBooleanValue >> printGraphQLOn: aStream [
 
-	aStream nextPutAll: (value ifTrue: [ 'true' ] ifFalse: [ 'false' ])
+	aStream print: value
 ]

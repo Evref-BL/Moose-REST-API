@@ -10,6 +10,17 @@ Class {
 	#tag : 'AST'
 }
 
+{ #category : 'execution' }
+GQLFragmentSpread >> collectFieldsFor: anObjectType visited: aVisitedSet into: aGroupedDictionary path: aPath executor: anExecutor [
+
+	^ anExecutor
+		  collectFragmentSpread: self
+		  objectType: anObjectType
+		  visited: aVisitedSet
+		  into: aGroupedDictionary
+		  path: aPath
+]
+
 { #category : 'accessing' }
 GQLFragmentSpread >> directives [
 

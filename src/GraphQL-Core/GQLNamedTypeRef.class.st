@@ -56,3 +56,9 @@ GQLNamedTypeRef >> printOn: aStream [
 
 	aStream nextPutAll: name asString
 ]
+
+{ #category : 'resolving' }
+GQLNamedTypeRef >> resolveIn: aSchema [
+
+	^ aSchema existingTypeNamed: name
+]

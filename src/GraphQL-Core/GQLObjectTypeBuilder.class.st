@@ -24,18 +24,27 @@ GQLObjectTypeBuilder >> addField: aGQLFieldDefinition [
 
 { #category : 'private' }
 GQLObjectTypeBuilder >> argumentFrom: anObject [
+
 	| spec |
 	(anObject isKindOf: GQLArgument) ifTrue: [ ^ anObject ].
 	anObject isAssociation ifFalse: [
-		^ self error: 'Invalid argument declaration: ' , anObject printString ].
+		^ self error:
+			  'Invalid argument declaration: ' , anObject printString ].
 	spec := anObject value.
-	(spec isString or: [ (spec isKindOf: GQLType) or: [ spec isKindOf: GQLTypeRef ] ]) ifTrue: [
-		^ GQLArgument name: anObject key type: spec ].
-	(spec isCollection and: [ spec isEmpty not ]) ifTrue: [
-		^ spec size >= 2
-			ifTrue: [ GQLArgument name: anObject key type: spec first default: spec second ]
-			ifFalse: [ GQLArgument name: anObject key type: spec first ] ].
-	^ self error: 'Invalid type for argument "' , anObject key asString , '": ' , spec printString
+	(spec isString or: [
+		 (spec isKindOf: GQLType) or: [ spec isKindOf: GQLTypeRef ] ])
+		ifTrue: [ ^ GQLArgument name: anObject key type: spec ].
+	(spec isCollection and: [ spec notEmpty ]) ifTrue: [
+			^ spec size >= 2
+				  ifTrue: [
+					  GQLArgument
+						  name: anObject key
+						  type: spec first
+						  default: spec second ]
+				  ifFalse: [ GQLArgument name: anObject key type: spec first ] ].
+	^ self error:
+		  'Invalid type for argument "' , anObject key asString , '": '
+		  , spec printString
 ]
 
 { #category : 'fields' }

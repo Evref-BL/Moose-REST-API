@@ -27,7 +27,9 @@ GQLDocument >> fragments [
 
 	| result |
 	result := Dictionary new.
-	definitions do: [ :each | each isFragmentDefinition ifTrue: [ result at: each name put: each ] ].
+	definitions
+		select: [ :each | each isFragmentDefinition ]
+		thenDo: [ :each | result at: each name put: each ].
 	^ result
 ]
 

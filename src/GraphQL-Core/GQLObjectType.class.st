@@ -24,6 +24,16 @@ GQLObjectType >> addField: aFieldDefinition [
 	^ fields at: aFieldDefinition name put: aFieldDefinition
 ]
 
+{ #category : 'execution' }
+GQLObjectType >> completePresentValue: aResult fields: aFieldCollection path: aPath parentType: anObjectType fieldDefinition: aFieldDefinition executor: anExecutor [
+
+	^ anExecutor
+		  completeObjectValue: self
+		  fields: aFieldCollection
+		  result: aResult
+		  path: aPath
+]
+
 { #category : 'accessing' }
 GQLObjectType >> fieldNamed: aString [
 	^ fields at: aString asString ifAbsent: [ nil ]
@@ -40,6 +50,13 @@ GQLObjectType >> initialize [
 	fields := OrderedDictionary new
 ]
 
+{ #category : 'accessing' }
+GQLObjectType >> interfaces [
+	"Interfaces are not supported: an object type implements none"
+
+	^ #(  )
+]
+
 { #category : 'testing' }
 GQLObjectType >> isObject [
 	^ true
@@ -48,4 +65,10 @@ GQLObjectType >> isObject [
 { #category : 'accessing' }
 GQLObjectType >> kind [
 	^ 'OBJECT'
+]
+
+{ #category : 'resolving' }
+GQLObjectType >> resolveFieldTypesIn: aSchema [
+
+	fields do: [ :each | each resolveTypeIn: aSchema ]
 ]

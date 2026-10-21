@@ -17,6 +17,28 @@ GQLNonNullType class >> of: aType [
 	^ self new ofType: aType; yourself
 ]
 
+{ #category : 'execution' }
+GQLNonNullType >> coerceInputValue: aValue executor: anExecutor [
+
+	aValue ifNil: [
+			^ GQLCoercionError signal:
+				  'Expected non-nullable type "' , self printString
+				  , '" not to be null.' ].
+	^ ofType coerceInputValue: aValue executor: anExecutor
+]
+
+{ #category : 'execution' }
+GQLNonNullType >> completeValue: aResult fields: aFieldCollection path: aPath parentType: anObjectType fieldDefinition: aFieldDefinition executor: anExecutor [
+
+	^ anExecutor
+		  completeNonNullValue: self
+		  fields: aFieldCollection
+		  result: aResult
+		  path: aPath
+		  parentType: anObjectType
+		  fieldDefinition: aFieldDefinition
+]
+
 { #category : 'testing' }
 GQLNonNullType >> isLeaf [
 	^ false
@@ -71,4 +93,11 @@ GQLNonNullType >> ofType: aType [
 { #category : 'printing' }
 GQLNonNullType >> printOn: aStream [
 	aStream print: ofType; nextPut: $!
+]
+
+{ #category : 'execution' }
+GQLNonNullType >> recoverFromFieldError: aFieldError [
+	"A non-null value cannot be made null: propagate the error to the nearest nullable position"
+
+	^ aFieldError pass
 ]

@@ -28,10 +28,13 @@ GQLSchema >> addMetaField: aGQLFieldDefinition [
 { #category : 'adding' }
 GQLSchema >> addType: aNamedType [
 	"Register a named type (replacing any type with the same name) and answer it"
-	(aNamedType name isNil or: [ aNamedType name isEmpty ]) ifTrue: [
-		^ self error: 'Cannot register a type without name: ' , aNamedType printString ].
+
+	aNamedType name isEmptyOrNil ifTrue: [
+			^ self error:
+				  'Cannot register a type without name: ' , aNamedType printString ].
 	aNamedType isNamed ifFalse: [
-		^ self error: 'Cannot register a wrapper type: ' , aNamedType printString ].
+			^ self error:
+				  'Cannot register a wrapper type: ' , aNamedType printString ].
 	^ types at: aNamedType name put: aNamedType
 ]
 
@@ -69,6 +72,14 @@ GQLSchema >> execute: aQueryString operationName: anOperationNameOrNil variables
 { #category : 'execution' }
 GQLSchema >> execute: aQueryString variables: aDictionaryOrNil [
 	^ self execute: aQueryString operationName: nil variables: aDictionaryOrNil context: nil
+]
+
+{ #category : 'accessing' }
+GQLSchema >> existingTypeNamed: aString [
+	"Answer the type named aString; signal an Error if it is not registered"
+
+	^ (self typeNamed: aString) ifNil: [
+		  self error: 'Unknown type "' , aString asString , '"' ]
 ]
 
 { #category : 'accessing' }
@@ -156,13 +167,12 @@ GQLSchema >> resolveTypeOf: aFieldOrArgument describedAs: aString [
 GQLSchema >> resolveTypeRef: aTypeRef [
 	"Answer the GQLType for a type reference AST (or a type String such as '[ID!]!'), building list/non-null wrappers.
 	Signal an Error for unknown type names."
+
 	| ref |
 	ref := aTypeRef isString
-		ifTrue: [ GQLParser parseTypeRef: aTypeRef ]
-		ifFalse: [ aTypeRef ].
-	ref isNonNull ifTrue: [ ^ GQLNonNullType of: (self resolveTypeRef: ref ofType) ].
-	ref isList ifTrue: [ ^ GQLListType of: (self resolveTypeRef: ref ofType) ].
-	^ (self typeNamed: ref name) ifNil: [ self error: 'Unknown type "' , ref name asString , '"' ]
+		       ifTrue: [ GQLParser parseTypeRef: aTypeRef ]
+		       ifFalse: [ aTypeRef ].
+	^ ref resolveIn: self
 ]
 
 { #category : 'resolving' }
@@ -190,28 +200,45 @@ GQLSchema >> types [
 { #category : 'validation' }
 GQLSchema >> validate [
 	"Check the schema is consistent; signal an Error with a clear message otherwise. Answer the receiver."
+
 	queryType ifNil: [ ^ self error: 'Schema has no query type' ].
-	queryType isObject ifFalse: [ ^ self error: 'Query type "' , queryType name asString , '" must be an object type' ].
+	queryType isObject ifFalse: [
+			^ self error:
+				  'Query type "' , queryType name asString
+				  , '" must be an object type' ].
 	(self typeNamed: queryType name) == queryType ifFalse: [
-		^ self error: 'Query type "' , queryType name asString , '" is not registered in the schema' ].
+			^ self error: 'Query type "' , queryType name asString
+				  , '" is not registered in the schema' ].
 	self objectTypes do: [ :objectType |
-		objectType fields isEmpty ifTrue: [
-			^ self error: 'Object type "' , objectType name , '" must define at least one field' ].
-		objectType fields do: [ :field |
-			self validateType: field type describedAs: 'field ' , objectType name , '.' , field name.
-			field arguments do: [ :arg |
-				| where |
-				where := 'argument "' , arg name , '" of field ' , objectType name , '.' , field name.
-				self validateType: arg type describedAs: where.
-				arg type isInputType ifFalse: [
-					^ self error: 'Type "' , arg type printString , '" of ' , where , ' is not an input type' ] ] ] ].
+			objectType fields ifEmpty: [
+					^ self error:
+						  'Object type "' , objectType name
+						  , '" must define at least one field' ].
+			objectType fields do: [ :field |
+					self
+						validateType: field type
+						describedAs: 'field ' , objectType name , '.' , field name.
+					field arguments do: [ :arg |
+							| where |
+							where := 'argument "' , arg name , '" of field '
+							         , objectType name , '.' , field name.
+							self validateType: arg type describedAs: where.
+							arg type isInputType ifFalse: [
+									^ self error:
+										  'Type "' , arg type printString , '" of ' , where
+										  , ' is not an input type' ] ] ] ].
 	^ self
 ]
 
 { #category : 'private' }
 GQLSchema >> validateType: aType describedAs: aString [
-	(aType isNil or: [ (aType isKindOf: GQLType) not ]) ifTrue: [
+
+	| namedType |
+	(aType isKindOf: GQLType) ifFalse: [
 		^ self error: 'Type of ' , aString , ' is not resolved' ].
-	(aType namedType isNil or: [ (self typeNamed: aType namedType name) ~~ aType namedType ]) ifTrue: [
-		^ self error: 'Type "' , aType printString , '" of ' , aString , ' is not registered in the schema' ]
+	namedType := aType namedType.
+	(namedType notNil and: [
+		 (self typeNamed: namedType name) == namedType ]) ifFalse: [
+			^ self error: 'Type "' , aType printString , '" of ' , aString
+				  , ' is not registered in the schema' ]
 ]

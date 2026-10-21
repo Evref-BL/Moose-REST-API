@@ -54,6 +54,14 @@ GQLTypeRef >> nullableType [
 	^ self
 ]
 
+{ #category : 'resolving' }
+GQLTypeRef >> resolveIn: aSchema [
+	"Answer the GQLType referenced by the receiver in aSchema, building list/non-null wrappers.
+	Signal an Error for unknown type names"
+
+	^ self subclassResponsibility
+]
+
 { #category : 'accessing' }
 GQLTypeRef >> typeName [
 	"Answer the name of the innermost named type"

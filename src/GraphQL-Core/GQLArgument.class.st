@@ -53,11 +53,11 @@ GQLArgument >> defaultValue: aValue [
 
 { #category : 'accessing' }
 GQLArgument >> defaultValueLiteral [
-	"Answer the default value as a GraphQL literal String (for introspection), nil if there is no default"
+	"Answer the default value as a GraphQL literal String (for introspection), nil if there is no default.
+	Without a resolved type, the untyped GQLType class>>literalFor: is used"
+
 	self hasDefault ifFalse: [ ^ nil ].
-	^ type
-		ifNil: [ GQLType literalFor: defaultValue ]
-		ifNotNil: [ :t | t literalFor: defaultValue ]
+	^ (type ifNil: [ GQLType ]) literalFor: defaultValue
 ]
 
 { #category : 'accessing' }
@@ -72,7 +72,9 @@ GQLArgument >> description: aString [
 
 { #category : 'testing' }
 GQLArgument >> hasDefault [
-	^ hasDefault == true
+	"Always a Boolean: initialized to false, set by #defaultValue: and #removeDefault"
+
+	^ hasDefault
 ]
 
 { #category : 'initialization' }
@@ -145,6 +147,6 @@ GQLArgument >> typeSpec: aTypeSpec [
 
 { #category : 'accessing' }
 GQLArgument >> typeString [
-	type ifNotNil: [ :t | ^ t printString ].
-	^ typeRef ifNotNil: [ :t | t printString ]
+
+	^ (type ifNil: [ typeRef ]) ifNotNil: [ :t | t printString ]
 ]

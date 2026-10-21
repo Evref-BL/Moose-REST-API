@@ -46,13 +46,16 @@ GQLFieldDefinition >> arguments [
 { #category : 'resolving' }
 GQLFieldDefinition >> defaultResolve: aSource [
 	"Dictionary sources are looked up by String then Symbol key; other objects receive the unary message named like the field"
+
 	| selector |
 	aSource ifNil: [ ^ nil ].
 	aSource isDictionary ifTrue: [
-		^ aSource at: name ifAbsent: [ aSource at: name asSymbol ifAbsent: [ nil ] ] ].
+			^ aSource
+				  at: name
+				  ifAbsent: [ aSource at: name asSymbol ifAbsent: [ nil ] ] ].
 	selector := name asSymbol.
-	(selector numArgs = 0 and: [ aSource respondsTo: selector ]) ifTrue: [ ^ aSource perform: selector ].
-	^ nil
+	^ (selector numArgs = 0 and: [ aSource respondsTo: selector ])
+		  ifTrue: [ aSource perform: selector ]
 ]
 
 { #category : 'accessing' }
@@ -95,7 +98,9 @@ GQLFieldDefinition >> isDeprecated [
 
 { #category : 'accessing' }
 GQLFieldDefinition >> isDeprecated: aBoolean [
-	isDeprecated := aBoolean
+	"Coerced once here so that #isDeprecated always answers a Boolean (nil or any non-true value means not deprecated)"
+
+	isDeprecated := aBoolean == true
 ]
 
 { #category : 'accessing' }
@@ -175,6 +180,6 @@ GQLFieldDefinition >> typeSpec: aTypeSpec [
 
 { #category : 'accessing' }
 GQLFieldDefinition >> typeString [
-	type ifNotNil: [ :t | ^ t printString ].
-	^ typeRef ifNotNil: [ :t | t printString ]
+
+	^ (type ifNil: [ typeRef ]) ifNotNil: [ :t | t printString ]
 ]

@@ -48,6 +48,22 @@ GQLLexer class >> blockStringValue: aString [
 	^ String lf join: lines
 ]
 
+{ #category : 'utilities' }
+GQLLexer class >> escapedCharacters [
+	"Character following a backslash in a string -> escaped Character (\u escapes are handled separately)"
+
+	^ Dictionary new
+		  at: $" put: $";
+		  at: $\ put: $\;
+		  at: $/ put: $/;
+		  at: $b put: Character backspace;
+		  at: $f put: Character newPage;
+		  at: $n put: Character lf;
+		  at: $r put: Character cr;
+		  at: $t put: Character tab;
+		  yourself
+]
+
 { #category : 'instance creation' }
 GQLLexer class >> on: aString [
 
@@ -204,41 +220,19 @@ GQLLexer >> readDigitsInto: aWriteStream [
 GQLLexer >> readEscapeInto: aWriteStream [
 	"The backslash has already been consumed"
 
-	| char code |
+	| char escaped |
 	char := stream peek.
-	(char isNil or: [ self isLineTerminator: char ]) ifTrue: [ ^ self syntaxError: 'Unterminated string.' ].
+	(char isNil or: [ self isLineTerminator: char ]) ifTrue: [
+		^ self syntaxError: 'Unterminated string.' ].
 	char = $u ifTrue: [
-		self advance.
-		code := self readHex4.
-		(code between: 16rD800 and: 16rDBFF) ifTrue: [
-			| low |
-			(stream peek = $\ and: [ (self lookAhead: 2) = $u ]) ifFalse: [
-				^ self syntaxError: 'Invalid Unicode escape sequence.' ].
-			self advance; advance.
-			low := self readHex4.
-			(low between: 16rDC00 and: 16rDFFF) ifFalse: [ ^ self syntaxError: 'Invalid Unicode escape sequence.' ].
-			code := code - 16rD800 * 16r400 + (low - 16rDC00) + 16r10000 ].
-		(code between: 16rDC00 and: 16rDFFF) ifTrue: [ ^ self syntaxError: 'Invalid Unicode escape sequence.' ].
-		^ aWriteStream nextPut: (Character value: code) ].
-	('"\/' includes: char) ifTrue: [
-		self advance.
-		^ aWriteStream nextPut: char ].
-	char = $b ifTrue: [
-		self advance.
-		^ aWriteStream nextPut: Character backspace ].
-	char = $f ifTrue: [
-		self advance.
-		^ aWriteStream nextPut: Character newPage ].
-	char = $n ifTrue: [
-		self advance.
-		^ aWriteStream nextPut: Character lf ].
-	char = $r ifTrue: [
-		self advance.
-		^ aWriteStream nextPut: Character cr ].
-	char = $t ifTrue: [
-		self advance.
-		^ aWriteStream nextPut: Character tab ].
-	^ self syntaxError: 'Invalid character escape sequence: \' , char asString
+			self advance.
+			^ aWriteStream nextPut: self readUnicodeEscape ].
+	escaped := self class escapedCharacters at: char ifAbsent: [
+			           ^ self syntaxError:
+				             'Invalid character escape sequence: \'
+				             , char asString ].
+	self advance.
+	^ aWriteStream nextPut: escaped
 ]
 
 { #category : 'private - reading' }
@@ -275,23 +269,28 @@ GQLLexer >> readNumberLine: aLine column: aColumn [
 	stream peek = $- ifTrue: [ ws nextPut: self advance ].
 	stream peek = $0
 		ifTrue: [
-			ws nextPut: self advance.
-			(self isDigit: stream peek) ifTrue: [
-				^ self syntaxError: 'Invalid number, unexpected digit after 0: ' , (self describeChar: stream peek) ] ]
+				ws nextPut: self advance.
+				(self isDigit: stream peek) ifTrue: [
+						^ self syntaxError:
+							  'Invalid number, unexpected digit after 0: '
+							  , (self describeChar: stream peek) ] ]
 		ifFalse: [ self readDigitsInto: ws ].
 	stream peek = $. ifTrue: [
-		isFloat := true.
-		ws nextPut: self advance.
-		self readDigitsInto: ws ].
-	(stream peek = $e or: [ stream peek = $E ]) ifTrue: [
-		isFloat := true.
-		ws nextPut: self advance.
-		(stream peek = $+ or: [ stream peek = $- ]) ifTrue: [ ws nextPut: self advance ].
-		self readDigitsInto: ws ].
+			isFloat := true.
+			ws nextPut: self advance.
+			self readDigitsInto: ws ].
+	('eE' includes: stream peek) ifTrue: [
+			isFloat := true.
+			ws nextPut: self advance.
+			('+-' includes: stream peek) ifTrue: [ ws nextPut: self advance ].
+			self readDigitsInto: ws ].
 	(stream peek = $. or: [ self isNameStart: stream peek ]) ifTrue: [
-		^ self syntaxError: 'Invalid number, expected digit but got: ' , (self describeChar: stream peek) ].
+			^ self syntaxError: 'Invalid number, expected digit but got: '
+				  , (self describeChar: stream peek) ].
 	^ GQLToken
-		  kind: (isFloat ifTrue: [ #float ] ifFalse: [ #int ])
+		  kind: (isFloat
+				   ifTrue: [ #float ]
+				   ifFalse: [ #int ])
 		  value: ws contents
 		  line: aLine
 		  column: aColumn
@@ -345,6 +344,27 @@ GQLLexer >> readToken [
 			  ifTrue: [ self readBlockStringLine: startLine column: startColumn ]
 			  ifFalse: [ self readStringLine: startLine column: startColumn ] ].
 	^ self syntaxError: 'Unexpected character: ' , (self describeChar: char)
+]
+
+{ #category : 'private - reading' }
+GQLLexer >> readUnicodeEscape [
+	"Answer the Character of a \uXXXX escape (the \u has already been consumed), combining a UTF-16 surrogate pair"
+
+	| code low |
+	code := self readHex4.
+	(code between: 16rD800 and: 16rDBFF) ifTrue: [
+			(stream peek = $\ and: [ (self lookAhead: 2) = $u ]) ifFalse: [
+				^ self syntaxError: 'Invalid Unicode escape sequence.' ].
+			self
+				advance;
+				advance.
+			low := self readHex4.
+			(low between: 16rDC00 and: 16rDFFF) ifFalse: [
+				^ self syntaxError: 'Invalid Unicode escape sequence.' ].
+			code := code - 16rD800 * 16r400 + (low - 16rDC00) + 16r10000 ].
+	(code between: 16rDC00 and: 16rDFFF) ifTrue: [
+		^ self syntaxError: 'Invalid Unicode escape sequence.' ].
+	^ Character value: code
 ]
 
 { #category : 'initialization' }

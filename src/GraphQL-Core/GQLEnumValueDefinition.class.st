@@ -64,7 +64,9 @@ GQLEnumValueDefinition >> isDeprecated [
 
 { #category : 'accessing' }
 GQLEnumValueDefinition >> isDeprecated: aBoolean [
-	isDeprecated := aBoolean
+	"Coerced once here so that #isDeprecated always answers a Boolean (nil or any non-true value means not deprecated)"
+
+	isDeprecated := aBoolean == true
 ]
 
 { #category : 'accessing' }

@@ -15,9 +15,17 @@ Class {
 
 { #category : 'built-ins' }
 GQLScalarType class >> boolean [
+
 	| type check |
-	type := self new name: 'Boolean'; description: 'The `Boolean` scalar type represents `true` or `false`.'; yourself.
-	check := [ :v | (v == true or: [ v == false ]) ifTrue: [ v ] ifFalse: [ type coercionError: v ] ].
+	type := self new
+		        name: 'Boolean';
+		        description:
+			        'The `Boolean` scalar type represents `true` or `false`.';
+		        yourself.
+	check := [ :v |
+		         (self isBooleanValue: v)
+			         ifTrue: [ v ]
+			         ifFalse: [ type coercionError: v ] ].
 	type serializeBlock: check.
 	type coerceBlock: check.
 	^ type
@@ -36,37 +44,47 @@ GQLScalarType class >> describe: aValue [
 
 { #category : 'built-ins' }
 GQLScalarType class >> float [
+
 	| type |
-	type := self new name: 'Float'; description: 'The `Float` scalar type represents signed double-precision fractional values.'; yourself.
+	type := self new
+		        name: 'Float';
+		        description:
+			        'The `Float` scalar type represents signed double-precision fractional values.';
+		        yourself.
 	type serializeBlock: [ :v |
-		v isNumber
-			ifTrue: [ v asFloat in: [ :f | (f isNaN or: [ f isInfinite ]) ifTrue: [ nil ] ifFalse: [ f ] ] ]
-			ifFalse: [ type coercionError: v ] ].
+			v isNumber
+				ifTrue: [ v asFloat in: [ :f | f isFinite ifTrue: [ f ] ] ]
+				ifFalse: [ type coercionError: v ] ].
 	type coerceBlock: [ :v |
-		(v isNumber and: [ v asFloat isFinite ])
-			ifTrue: [ v asFloat ]
-			ifFalse: [ type coercionError: v ] ].
+			(v isNumber and: [ v asFloat isFinite ])
+				ifTrue: [ v asFloat ]
+				ifFalse: [ type coercionError: v ] ].
 	^ type
 ]
 
 { #category : 'built-ins' }
 GQLScalarType class >> id [
+
 	| type |
-	type := self new name: 'ID'; description: 'The `ID` scalar type represents a unique identifier, serialized as a String.'; yourself.
+	type := self new
+		        name: 'ID';
+		        description:
+			        'The `ID` scalar type represents a unique identifier, serialized as a String.';
+		        yourself.
 	type serializeBlock: [ :v |
-		v isString
-			ifTrue: [ v asString ]
-			ifFalse: [
-				v isInteger
-					ifTrue: [ v printString ]
-					ifFalse: [ [ v printString ] on: Error do: [ :e | type coercionError: v ] ] ] ].
+			v isString
+				ifTrue: [ v asString ]
+				ifFalse: [
+						[ v printString ]
+							on: Error
+							do: [ :e | type coercionError: v ] ] ].
 	type coerceBlock: [ :v |
-		v isString
-			ifTrue: [ v asString ]
-			ifFalse: [
-				v isInteger
-					ifTrue: [ v printString ]
-					ifFalse: [ type coercionError: v ] ] ].
+			v isString
+				ifTrue: [ v asString ]
+				ifFalse: [
+						v isInteger
+							ifTrue: [ v printString ]
+							ifFalse: [ type coercionError: v ] ] ].
 	^ type
 ]
 
@@ -107,19 +125,24 @@ GQLScalarType class >> name: aString serialize: aSerializeBlock coerce: aCoerceB
 
 { #category : 'built-ins' }
 GQLScalarType class >> string [
+
 	| type |
-	type := self new name: 'String'; description: 'The `String` scalar type represents textual data, represented as UTF-8 character sequences.'; yourself.
+	type := self new
+		        name: 'String';
+		        description:
+			        'The `String` scalar type represents textual data, represented as UTF-8 character sequences.';
+		        yourself.
 	type serializeBlock: [ :v |
-		v isString
-			ifTrue: [ v asString ]
-			ifFalse: [
-				(v isCharacter or: [ v isNumber ])
-					ifTrue: [ v asString ]
-					ifFalse: [
-						(v == true or: [ v == false ])
-							ifTrue: [ v printString ]
-							ifFalse: [ [ v printString ] on: Error do: [ :e | type coercionError: v ] ] ] ] ].
-	type coerceBlock: [ :v | v isString ifTrue: [ v asString ] ifFalse: [ type coercionError: v ] ].
+			(v isString or: [ v isCharacter or: [ v isNumber ] ])
+				ifTrue: [ v asString ]
+				ifFalse: [
+						[ v printString ]
+							on: Error
+							do: [ :e | type coercionError: v ] ] ].
+	type coerceBlock: [ :v |
+			v isString
+				ifTrue: [ v asString ]
+				ifFalse: [ type coercionError: v ] ].
 	^ type
 ]
 
@@ -141,9 +164,25 @@ GQLScalarType >> coerceBlock: aBlock [
 	coerceBlock := aBlock
 ]
 
+{ #category : 'execution' }
+GQLScalarType >> coercePresentInputValue: aValue executor: anExecutor [
+
+	^ self coerce: aValue
+]
+
 { #category : 'coercion' }
 GQLScalarType >> coercionError: aValue [
 	^ GQLCoercionError signal: (self class describe: aValue) , ' is not a valid ' , name printString , ' value'
+]
+
+{ #category : 'execution' }
+GQLScalarType >> completePresentValue: aResult fields: aFieldCollection path: aPath parentType: anObjectType fieldDefinition: aFieldDefinition executor: anExecutor [
+
+	^ anExecutor
+		  completeLeafValue: self
+		  fields: aFieldCollection
+		  result: aResult
+		  path: aPath
 ]
 
 { #category : 'testing' }

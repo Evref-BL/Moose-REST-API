@@ -23,15 +23,13 @@ GQLEnumType class >> name: aString values: aCollection [
 { #category : 'adding' }
 GQLEnumType >> addValue: aValueOrName [
 	"Add a GQLEnumValueDefinition, a String/Symbol name, or an Association name -> description"
+
 	| def |
-	def := (aValueOrName isKindOf: GQLEnumValueDefinition)
-		ifTrue: [ aValueOrName ]
-		ifFalse: [
-			aValueOrName isAssociation
-				ifTrue: [ GQLEnumValueDefinition name: aValueOrName key description: aValueOrName value ]
-				ifFalse: [ GQLEnumValueDefinition name: aValueOrName ] ].
+	def := self valueDefinitionFrom: aValueOrName.
 	(self valueNamed: def name) ifNotNil: [
-		^ self error: 'Enum value "' , def name , '" is already defined in enum "' , name asString , '"' ].
+			^ self error:
+				  'Enum value "' , def name , '" is already defined in enum "'
+				  , name asString , '"' ].
 	values add: def.
 	^ def
 ]
@@ -42,9 +40,25 @@ GQLEnumType >> coerce: aValue [
 	^ self serialize: aValue
 ]
 
+{ #category : 'execution' }
+GQLEnumType >> coercePresentInputValue: aValue executor: anExecutor [
+
+	^ self coerce: aValue
+]
+
 { #category : 'coercion' }
 GQLEnumType >> coercionError: aValue [
 	^ GQLCoercionError signal: (GQLScalarType describe: aValue) , ' is not a valid value of enum ' , name printString
+]
+
+{ #category : 'execution' }
+GQLEnumType >> completePresentValue: aResult fields: aFieldCollection path: aPath parentType: anObjectType fieldDefinition: aFieldDefinition executor: anExecutor [
+
+	^ anExecutor
+		  completeLeafValue: self
+		  fields: aFieldCollection
+		  result: aResult
+		  path: aPath
 ]
 
 { #category : 'testing' }
@@ -75,7 +89,8 @@ GQLEnumType >> kind [
 
 { #category : 'literals' }
 GQLEnumType >> literalFor: aValue [
-	(aValue notNil and: [ self includesValue: aValue ]) ifTrue: [ ^ aValue asString ].
+
+	(self includesValue: aValue) ifTrue: [ ^ aValue asString ].
 	^ super literalFor: aValue
 ]
 
@@ -85,6 +100,19 @@ GQLEnumType >> serialize: aValue [
 	aValue ifNil: [ ^ nil ].
 	(self includesValue: aValue) ifFalse: [ ^ self coercionError: aValue ].
 	^ aValue asString
+]
+
+{ #category : 'adding' }
+GQLEnumType >> valueDefinitionFrom: aValueOrName [
+	"Answer a GQLEnumValueDefinition from a GQLEnumValueDefinition, a String/Symbol name, or an Association name -> description"
+
+	(aValueOrName isKindOf: GQLEnumValueDefinition) ifTrue: [
+		^ aValueOrName ].
+	aValueOrName isAssociation ifTrue: [
+			^ GQLEnumValueDefinition
+				  name: aValueOrName key
+				  description: aValueOrName value ].
+	^ GQLEnumValueDefinition name: aValueOrName
 ]
 
 { #category : 'accessing' }

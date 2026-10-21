@@ -39,15 +39,16 @@ GQLError class >> message: aString path: aPathOrNil locations: aLocationsOrNil [
 { #category : 'converting' }
 GQLError >> asJsonDictionary [
 	"Answer an OrderedDictionary ready to be written as JSON: message, then locations, path and extensions when present"
+
 	| result |
 	result := OrderedDictionary new.
 	result at: 'message' put: message asString.
-	(locations notNil and: [ locations notEmpty ]) ifTrue: [
-		result at: 'locations' put: (locations collect: [ :each |
-			OrderedDictionary new
-				at: 'line' put: (each at: 'line' ifAbsent: [ nil ]);
-				at: 'column' put: (each at: 'column' ifAbsent: [ nil ]);
-				yourself ]) ].
+	locations isEmptyOrNil ifFalse: [
+			result at: 'locations' put: (locations collect: [ :each |
+						 OrderedDictionary new
+							 at: 'line' put: (each at: 'line' ifAbsent: [ nil ]);
+							 at: 'column' put: (each at: 'column' ifAbsent: [ nil ]);
+							 yourself ]) ].
 	path ifNotNil: [ result at: 'path' put: path asArray ].
 	extensions ifNotNil: [ result at: 'extensions' put: extensions ].
 	^ result

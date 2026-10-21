@@ -30,6 +30,16 @@ Class {
 	#tag : 'Server'
 }
 
+{ #category : 'accessing' }
+GQLHttpHandler class >> methodHandlers [
+	"HTTP method -> selector of the instance method handling a request on the GraphQL path"
+
+	^ Dictionary new
+		  at: #GET put: #handleGet:;
+		  at: #POST put: #handlePost:;
+		  yourself
+]
+
 { #category : 'instance creation' }
 GQLHttpHandler class >> schema: aGQLSchema [
 
@@ -51,16 +61,17 @@ GQLHttpHandler >> addCorsHeadersTo: aResponse [
 
 { #category : 'private - handling' }
 GQLHttpHandler >> basicHandleRequest: aRequest [
-	"Dispatch on method and path. May raise; see #handleRequest: for the safe entry point."
+	"Dispatch on method and path (CORS preflight requests are answered on any path).
+	May raise; see #handleRequest: for the safe entry point."
 
-	| method |
-	method := aRequest method.
-	method = #OPTIONS ifTrue: [ ^ self preflightResponse ].
+	aRequest method = #OPTIONS ifTrue: [ ^ self preflightResponse ].
 	(self isGraphQLPath: aRequest) ifFalse: [
 		^ self notFoundResponse: aRequest ].
-	method = #GET ifTrue: [ ^ self handleGet: aRequest ].
-	method = #POST ifTrue: [ ^ self handlePost: aRequest ].
-	^ self methodNotAllowedResponse: aRequest
+	^ self
+		  perform: (self class methodHandlers
+				   at: aRequest method
+				   ifAbsent: [ #methodNotAllowedResponse: ])
+		  with: aRequest
 ]
 
 { #category : 'private - parsing' }
@@ -96,8 +107,9 @@ GQLHttpHandler >> debug [
 
 { #category : 'accessing' }
 GQLHttpHandler >> debug: aBoolean [
+	"Coerced once here so that #isDebug always answers a Boolean (nil or any non-true value disables debug)"
 
-	debug := aBoolean
+	debug := aBoolean == true
 ]
 
 { #category : 'private - responses' }
@@ -118,7 +130,7 @@ GQLHttpHandler >> executeQuery: aQueryString operationName: anOperationName vari
 
 	| query context result |
 	query := self nonEmpty: aQueryString.
-	(query isNil or: [ query isString not ]) ifTrue: [
+	query isString ifFalse: [
 		^ self errorResponse: 'Must provide query string.' status: 200 ].
 	context := contextBlock ifNotNil: [ :block | block cull: aRequest ].
 	result := executor
@@ -166,12 +178,9 @@ GQLHttpHandler >> handleGet: aRequest [
 GQLHttpHandler >> handlePost: aRequest [
 	"Handle POST with a JSON body {query, operationName?, variables?} or an application/graphql body."
 
-	| body json variables mimeType |
+	| body json variables |
 	body := self bodyStringOf: aRequest.
-	mimeType := aRequest hasEntity ifTrue: [ aRequest contentType ].
-	(mimeType notNil and: [
-			 mimeType main asLowercase = 'application' and: [
-				 mimeType sub asLowercase = 'graphql' ] ]) ifTrue: [
+	(self hasGraphQLBody: aRequest) ifTrue: [
 			^ self
 				  executeQuery: body
 				  operationName:
@@ -216,6 +225,18 @@ GQLHttpHandler >> handleRequest: aRequest [
 		  do: [ :e | self internalErrorResponse: e ]
 ]
 
+{ #category : 'testing' }
+GQLHttpHandler >> hasGraphQLBody: aRequest [
+	"Answer whether aRequest has an application/graphql body (the raw query)"
+
+	| mimeType |
+	aRequest hasEntity ifFalse: [ ^ false ].
+	mimeType := aRequest contentType.
+	^ mimeType notNil and: [
+			  mimeType main asLowercase = 'application' and: [
+				  mimeType sub asLowercase = 'graphql' ] ]
+]
+
 { #category : 'initialization' }
 GQLHttpHandler >> initialize [
 
@@ -258,8 +279,9 @@ GQLHttpHandler >> internalErrorResponse: anException [
 
 { #category : 'testing' }
 GQLHttpHandler >> isDebug [
+	"Always a Boolean: initialized to false and coerced by #debug:"
 
-	^ debug == true
+	^ debug
 ]
 
 { #category : 'testing' }
@@ -267,10 +289,9 @@ GQLHttpHandler >> isGraphQLPath: aRequest [
 	"Accept the configured path (with or without trailing '/') and the root path '/'."
 
 	| requested |
-	requested := aRequest uri pathPrintString ifNil: [ '/' ].
-	requested isEmpty ifTrue: [ requested := '/' ].
-	[ requested size > 1 and: [ requested last = $/ ] ] whileTrue: [
-		requested := requested allButLast ].
+	requested := self withoutTrailingSlashes:
+		             ((aRequest uri pathPrintString ifNil: [ '/' ])
+			              ifEmpty: [ '/' ]).
 	^ requested = '/' or: [ requested = path ]
 ]
 
@@ -317,10 +338,8 @@ GQLHttpHandler >> methodNotAllowedResponse: aRequest [
 GQLHttpHandler >> nonEmpty: aStringOrNil [
 	"Answer nil for nil or empty (blank) strings, the argument otherwise."
 
-	aStringOrNil ifNil: [ ^ nil ].
-	(aStringOrNil isString and: [ aStringOrNil trimBoth isEmpty ])
-		ifTrue: [ ^ nil ].
-	^ aStringOrNil
+	^ (aStringOrNil isString and: [ aStringOrNil trimBoth isEmpty ])
+		  ifFalse: [ aStringOrNil ]
 ]
 
 { #category : 'private - responses' }
@@ -365,9 +384,7 @@ GQLHttpHandler >> path: aString [
 		              ifNotNil: [ aString asString trimBoth ].
 	(normalized beginsWith: '/') ifFalse: [
 		normalized := '/' , normalized ].
-	[ normalized size > 1 and: [ normalized last = $/ ] ] whileTrue: [
-		normalized := normalized allButLast ].
-	path := normalized
+	path := self withoutTrailingSlashes: normalized
 ]
 
 { #category : 'private - responses' }
@@ -392,4 +409,15 @@ GQLHttpHandler >> schema: aGQLSchema [
 
 	schema := aGQLSchema.
 	executor := GQLExecutor schema: aGQLSchema
+]
+
+{ #category : 'private - parsing' }
+GQLHttpHandler >> withoutTrailingSlashes: aString [
+	"Answer aString without its trailing '/' characters, keeping a lone '/'"
+
+	| result |
+	result := aString.
+	[ result size > 1 and: [ result last = $/ ] ] whileTrue: [
+		result := result allButLast ].
+	^ result
 ]

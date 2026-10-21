@@ -37,6 +37,14 @@ GQLField >> arguments: anObject [
 	arguments := anObject
 ]
 
+{ #category : 'execution' }
+GQLField >> collectFieldsFor: anObjectType visited: aVisitedSet into: aGroupedDictionary path: aPath executor: anExecutor [
+
+	^ (aGroupedDictionary
+		   at: self responseKey
+		   ifAbsentPut: [ OrderedCollection new ]) add: self
+]
+
 { #category : 'accessing' }
 GQLField >> directives [
 

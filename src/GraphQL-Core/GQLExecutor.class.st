@@ -22,6 +22,16 @@ Class {
 	#tag : 'Execution'
 }
 
+{ #category : 'directives' }
+GQLExecutor class >> excludingConditions [
+	"Directive name -> value of its if: argument that excludes the selection (@skip(if: true), @include(if: false))"
+
+	^ Dictionary new
+		  at: 'skip' put: true;
+		  at: 'include' put: false;
+		  yourself
+]
+
 { #category : 'instance creation' }
 GQLExecutor class >> schema: aGQLSchema [
 	^ self new schema: aGQLSchema; yourself
@@ -31,6 +41,14 @@ GQLExecutor class >> schema: aGQLSchema [
 GQLExecutor >> addRequestError: aMessage nodes: aNodeCollection [
 	"Record a request (pre-execution) error"
 	^ context addError: (GQLError message: aMessage path: nil locations: (self locationsOf: aNodeCollection))
+]
+
+{ #category : 'private - executing' }
+GQLExecutor >> argumentNodeNamed: aName in: aField [
+	"Answer the value node given in the query for the argument aName of aField, nil if absent"
+
+	^ aField arguments ifNotNil: [ :nodes |
+		  nodes at: aName ifAbsent: [ nil ] ]
 ]
 
 { #category : 'private - executing' }
@@ -76,111 +94,138 @@ GQLExecutor >> checkSelectionOf: aFieldDefinition fields: aFieldCollection path:
 ]
 
 { #category : 'private - executing' }
+GQLExecutor >> coerceArgument: anArgument named: aName fields: aFieldCollection path: aPath [
+	"Answer the value of anArgument: the value given in the query (a literal or a provided variable), coerced against
+	the argument type, otherwise its default value"
+
+	| node value |
+	node := self argumentNodeNamed: aName in: aFieldCollection first.
+	value := (node notNil and: [ node hasValueIn: context variables ])
+		         ifTrue: [ node valueWithVariables: context variables ]
+		         ifFalse: [
+				         anArgument hasDefault ifFalse: [
+						         ^ self
+							           missingArgument: anArgument
+							           named: aName
+							           fields: aFieldCollection
+							           path: aPath ].
+				         anArgument defaultValue ].
+	(value isNil and: [ anArgument type isNonNull ]) ifTrue: [
+			^ self
+				  fieldError: 'Argument "' , aName , '" of non-null type "'
+					  , anArgument type printString , '" must not be null.'
+				  fields: aFieldCollection
+				  path: aPath ].
+	node ifNil: [ ^ value ].
+	^ self
+		  coerceArgumentValue: value
+		  of: anArgument
+		  named: aName
+		  node: node
+		  fields: aFieldCollection
+		  path: aPath
+]
+
+{ #category : 'private - executing' }
+GQLExecutor >> coerceArgumentValue: aValue of: anArgument named: aName node: aValueNode fields: aFieldCollection path: aPath [
+	"Coerce a value given in the query against the argument type; an invalid value is a field error"
+
+	| failure coerced |
+	coerced := [ self coerceInputValue: aValue type: anArgument type ]
+		           on: GQLCoercionError
+		           do: [ :e |
+				           failure := e.
+				           nil ].
+	failure ifNotNil: [
+			self
+				fieldError:
+					'Argument "' , aName , '" has invalid value '
+					, (self describeValue:
+							 (aValueNode valueWithVariables: context variables)) , '; '
+					, (self messageForException: failure)
+				fields: aFieldCollection
+				path: aPath ].
+	^ coerced
+]
+
+{ #category : 'private - executing' }
 GQLExecutor >> coerceArgumentsOf: aFieldDefinition fields: aFieldCollection path: aPath [
 	"Answer a Dictionary argument name (String) -> coerced value for all the arguments defined by aFieldDefinition.
 	Arguments given in the query but not defined are ignored"
-	| field args |
-	field := aFieldCollection first.
+
+	| args |
 	args := Dictionary new.
 	aFieldDefinition arguments keysAndValuesDo: [ :argName :argument |
-		| node hasValue value failure |
-		hasValue := false.
-		node := field arguments ifNotNil: [ :nodes | nodes at: argName ifAbsent: [ nil ] ].
-		node ifNotNil: [
-			(node isVariable not or: [ node isDefinedIn: context variables ]) ifTrue: [
-				hasValue := true.
-				value := node valueWithVariables: context variables ] ].
-		(hasValue not and: [ argument hasDefault ]) ifTrue: [
-			hasValue := true.
-			value := argument defaultValue ].
-		(argument type isNonNull and: [ value isNil ]) ifTrue: [
-			self
-				fieldError: (hasValue
-					ifTrue: [ 'Argument "' , argName , '" of non-null type "' , argument type printString , '" must not be null.' ]
-					ifFalse: [ 'Argument "' , argName , '" of required type "' , argument type printString , '" was not provided.' ])
-				fields: aFieldCollection
-				path: aPath ].
-		(hasValue and: [ node notNil ]) ifTrue: [
-			value := [ self coerceInputValue: value type: argument type ]
-				on: GQLCoercionError
-				do: [ :e |
-					failure := e.
-					nil ].
-			failure ifNotNil: [
-				self
-					fieldError: 'Argument "' , argName , '" has invalid value ' , (self describeValue: (node valueWithVariables: context variables)) , '; ' , (self messageForException: failure)
-					fields: aFieldCollection
-					path: aPath ] ].
-		args at: argName put: value ].
+			args at: argName put: (self
+					 coerceArgument: argument
+					 named: argName
+					 fields: aFieldCollection
+					 path: aPath) ].
 	^ args
 ]
 
 { #category : 'private - coercion' }
 GQLExecutor >> coerceInputValue: aValue type: aType [
-	"Coerce an input value (variable or argument) against aType. Signal GQLCoercionError on invalid values"
-	aType isNonNull ifTrue: [
-		aValue ifNil: [
-			^ GQLCoercionError signal: 'Expected non-nullable type "' , aType printString , '" not to be null.' ].
-		^ self coerceInputValue: aValue type: aType ofType ].
-	aValue ifNil: [ ^ nil ].
-	aType isList ifTrue: [
-		(self isListValue: aValue) ifFalse: [ ^ Array with: (self coerceInputValue: aValue type: aType ofType) ].
-		^ Array streamContents: [ :stream |
-			aValue do: [ :each | stream nextPut: (self coerceInputValue: each type: aType ofType) ] ] ].
-	aType isLeaf ifTrue: [ ^ aType coerce: aValue ].
-	^ GQLCoercionError signal: 'Type "' , aType printString , '" is not an input type.'
+	"Coerce an input value (variable or argument) against aType (double dispatch). Signal GQLCoercionError on invalid values"
+
+	^ aType coerceInputValue: aValue executor: self
+]
+
+{ #category : 'private - coercion' }
+GQLExecutor >> coerceListInputValue: aValue type: aListType [
+	"A single value given for a list type is coerced as a list of one item"
+
+	(self isListValue: aValue) ifFalse: [
+		^ Array with: (self coerceInputValue: aValue type: aListType ofType) ].
+	^ Array streamContents: [ :stream |
+			  aValue do: [ :each |
+				  stream nextPut:
+					  (self coerceInputValue: each type: aListType ofType) ] ]
 ]
 
 { #category : 'private - variables' }
 GQLExecutor >> coerceVariable: aVariableDefinition from: aProvidedDictionary into: aResultDictionary [
-	| name type value coerced hasValue failure |
+	"Store in aResultDictionary the coerced value of the variable, provided or given by its default value; errors are recorded in the context"
+
+	| name type value coerced failure |
 	name := aVariableDefinition name asString.
-	type := [ schema resolveTypeRef: aVariableDefinition typeRef ]
-		on: Error
-		do: [ :e | nil ].
-	type ifNil: [
-		^ self
-			addRequestError: 'Unknown type "' , aVariableDefinition typeRef typeName asString , '".'
-			nodes: { aVariableDefinition } ].
-	type isInputType ifFalse: [
-		^ self
-			addRequestError: 'Variable "$' , name , '" cannot be non-input type "' , type printString , '".'
-			nodes: { aVariableDefinition } ].
-	hasValue := false.
-	(aProvidedDictionary includesKey: name)
-		ifTrue: [
-			hasValue := true.
-			value := aProvidedDictionary at: name ]
-		ifFalse: [
-			aVariableDefinition defaultValue ifNotNil: [ :node |
-				hasValue := true.
-				value := node valueWithVariables: nil ] ].
-	(type isNonNull and: [ value isNil ]) ifTrue: [
-		^ self
-			addRequestError: (hasValue
-				ifTrue: [ 'Variable "$' , name , '" of non-null type "' , type printString , '" must not be null.' ]
-				ifFalse: [ 'Variable "$' , name , '" of required type "' , type printString , '" was not provided.' ])
-			nodes: { aVariableDefinition } ].
-	hasValue ifFalse: [ ^ self ].
+	type := self
+		        inputTypeOfVariable: aVariableDefinition
+		        ifInvalid: [ ^ self ].
+	value := aProvidedDictionary at: name ifAbsent: [
+			         aVariableDefinition defaultValue
+				         ifNil: [
+				         ^ self missingVariable: aVariableDefinition type: type ]
+				         ifNotNil: [ :node | node valueWithVariables: nil ] ].
+	(value isNil and: [ type isNonNull ]) ifTrue: [
+			^ self
+				  addRequestError:
+					  'Variable "$' , name , '" of non-null type "'
+					  , type printString , '" must not be null.'
+				  nodes: { aVariableDefinition } ].
 	coerced := [ self coerceInputValue: value type: type ]
-		on: GQLCoercionError
-		do: [ :e |
-			failure := e.
-			nil ].
+		           on: GQLCoercionError
+		           do: [ :e |
+				           failure := e.
+				           nil ].
 	failure ifNotNil: [
-		^ self
-			addRequestError: 'Variable "$' , name , '" got invalid value ' , (self describeValue: value) , '; ' , (self messageForException: failure)
-			nodes: { aVariableDefinition } ].
+			^ self
+				  addRequestError: 'Variable "$' , name , '" got invalid value '
+					  , (self describeValue: value) , '; '
+					  , (self messageForException: failure)
+				  nodes: { aVariableDefinition } ].
 	aResultDictionary at: name put: coerced
 ]
 
 { #category : 'private - variables' }
 GQLExecutor >> coerceVariableValues: aDictionaryOrNil [
 	"Answer a Dictionary of coerced variable values for the operation variable definitions; errors are recorded in the context"
+
 	| provided result |
 	provided := Dictionary new.
-	(aDictionaryOrNil notNil and: [ aDictionaryOrNil isDictionary ]) ifTrue: [
-		aDictionaryOrNil keysAndValuesDo: [ :key :value | provided at: key asString put: value ] ].
+	aDictionaryOrNil isDictionary ifTrue: [
+			aDictionaryOrNil keysAndValuesDo: [ :key :value |
+				provided at: key asString put: value ] ].
 	result := Dictionary new.
 	context operation variableDefinitions do: [ :definition |
 		self coerceVariable: definition from: provided into: result ].
@@ -189,25 +234,17 @@ GQLExecutor >> coerceVariableValues: aDictionaryOrNil [
 
 { #category : 'private - fields collection' }
 GQLExecutor >> collectFields: anObjectType selectionSet: aSelectionSet visited: aVisitedSet into: aGroupedDictionary path: aPath [
-	aSelectionSet selections do: [ :selection |
-		(self shouldInclude: selection) ifTrue: [
-			selection isField ifTrue: [
-				(aGroupedDictionary at: selection responseKey ifAbsentPut: [ OrderedCollection new ]) add: selection ].
-			selection isInlineFragment ifTrue: [
-				(self typeCondition: selection typeCondition appliesTo: anObjectType) ifTrue: [
-					self
-						collectFields: anObjectType
-						selectionSet: selection selectionSet
-						visited: aVisitedSet
-						into: aGroupedDictionary
-						path: aPath ] ].
-			selection isFragmentSpread ifTrue: [
-				self
-					collectFragmentSpread: selection
-					objectType: anObjectType
+	"Double dispatch on each included selection (field, inline fragment or fragment spread)"
+
+	aSelectionSet selections
+		select: [ :selection | self shouldInclude: selection ]
+		thenDo: [ :selection |
+				selection
+					collectFieldsFor: anObjectType
 					visited: aVisitedSet
 					into: aGroupedDictionary
-					path: aPath ] ] ]
+					path: aPath
+					executor: self ]
 ]
 
 { #category : 'private - fields collection' }
@@ -229,20 +266,33 @@ GQLExecutor >> collectFields: anObjectType selectionSets: aCollection path: aPat
 
 { #category : 'private - fields collection' }
 GQLExecutor >> collectFragmentSpread: aFragmentSpread objectType: anObjectType visited: aVisitedSet into: aGroupedDictionary path: aPath [
+
 	| fragment |
 	(aVisitedSet includes: aFragmentSpread name) ifTrue: [ ^ self ].
 	aVisitedSet add: aFragmentSpread name.
-	fragment := context fragments at: aFragmentSpread name ifAbsent: [ nil ].
-	fragment ifNil: [
-		context addErrorOnce: (GQLError
-			message: 'Unknown fragment "' , aFragmentSpread name asString , '".'
-			path: aPath
-			locations: (self locationsOf: { aFragmentSpread })).
-		^ self ].
-	(self typeCondition: fragment typeCondition appliesTo: anObjectType) ifFalse: [ ^ self ].
+	fragment := context fragments
+		            at: aFragmentSpread name
+		            ifAbsent: [
+		            ^ self unknownFragment: aFragmentSpread path: aPath ].
+	(self typeCondition: fragment typeCondition appliesTo: anObjectType)
+		ifFalse: [ ^ self ].
 	self
 		collectFields: anObjectType
 		selectionSet: fragment selectionSet
+		visited: aVisitedSet
+		into: aGroupedDictionary
+		path: aPath
+]
+
+{ #category : 'private - fields collection' }
+GQLExecutor >> collectInlineFragment: anInlineFragment objectType: anObjectType visited: aVisitedSet into: aGroupedDictionary path: aPath [
+
+	(self
+		 typeCondition: anInlineFragment typeCondition
+		 appliesTo: anObjectType) ifFalse: [ ^ self ].
+	self
+		collectFields: anObjectType
+		selectionSet: anInlineFragment selectionSet
 		visited: aVisitedSet
 		into: aGroupedDictionary
 		path: aPath
@@ -263,49 +313,64 @@ GQLExecutor >> completeLeafValue: aLeafType fields: aFieldCollection result: aRe
 
 { #category : 'private - completion' }
 GQLExecutor >> completeListItem: anItem type: anItemType fields: aFieldCollection path: aPath parentType: anObjectType fieldDefinition: aFieldDefinition [
-	^ [ self
-			completeValue: anItemType
-			fields: aFieldCollection
-			result: anItem
-			path: aPath
-			parentType: anObjectType
-			fieldDefinition: aFieldDefinition ]
-		on: GQLFieldError
-		do: [ :e |
-			anItemType isNonNull
-				ifTrue: [ e pass ]
-				ifFalse: [ nil ] ]
+
+	^ [
+		  self
+			  completeValue: anItemType
+			  fields: aFieldCollection
+			  result: anItem
+			  path: aPath
+			  parentType: anObjectType
+			  fieldDefinition: aFieldDefinition ]
+		  on: GQLFieldError
+		  do: [ :e | anItemType recoverFromFieldError: e ]
 ]
 
 { #category : 'private - completion' }
 GQLExecutor >> completeListValue: aListType fields: aFieldCollection result: aResult path: aPath parentType: anObjectType fieldDefinition: aFieldDefinition [
-	"Complete each item (at most context maxListSize items). A non-null item error propagates to the list"
-	| itemType items index max |
-	itemType := aListType ofType.
+	"Complete each item (at most context maxListSize items); a single value is completed as a list of one item.
+	A non-null item error propagates to the list"
+
+	| items max |
+	(self isListValue: aResult) ifFalse: [
+			^ { (self
+				   completeListItem: aResult
+				   type: aListType ofType
+				   fields: aFieldCollection
+				   path: (aPath copyWith: 0)
+				   parentType: anObjectType
+				   fieldDefinition: aFieldDefinition) } ].
 	max := context maxListSize.
 	items := OrderedCollection new.
-	index := 0.
-	(self isListValue: aResult)
-		ifFalse: [
+	aResult do: [ :each |
+			items size >= max ifTrue: [ ^ items asArray ].
 			items add: (self
-				completeListItem: aResult
-				type: itemType
-				fields: aFieldCollection
-				path: (aPath copyWith: 0)
-				parentType: anObjectType
-				fieldDefinition: aFieldDefinition) ]
-		ifTrue: [
-			aResult do: [ :each |
-				index >= max ifTrue: [ ^ items asArray ].
-				items add: (self
-					completeListItem: each
-					type: itemType
-					fields: aFieldCollection
-					path: (aPath copyWith: index)
-					parentType: anObjectType
-					fieldDefinition: aFieldDefinition).
-				index := index + 1 ] ].
+					 completeListItem: each
+					 type: aListType ofType
+					 fields: aFieldCollection
+					 path: (aPath copyWith: items size)
+					 parentType: anObjectType
+					 fieldDefinition: aFieldDefinition) ].
 	^ items asArray
+]
+
+{ #category : 'private - completion' }
+GQLExecutor >> completeNonNullValue: aNonNullType fields: aFieldCollection result: aResult path: aPath parentType: anObjectType fieldDefinition: aFieldDefinition [
+	"Complete aResult as a value of the wrapped type; a null completed value is a field error"
+
+	^ (self
+		   completeValue: aNonNullType ofType
+		   fields: aFieldCollection
+		   result: aResult
+		   path: aPath
+		   parentType: anObjectType
+		   fieldDefinition: aFieldDefinition) ifNil: [
+			  self
+				  fieldError:
+					  'Cannot return null for non-nullable field '
+					  , anObjectType name , '.' , aFieldDefinition name , '.'
+				  fields: aFieldCollection
+				  path: aPath ]
 ]
 
 { #category : 'private - completion' }
@@ -322,37 +387,27 @@ GQLExecutor >> completeObjectValue: anObjectType fields: aFieldCollection result
 ]
 
 { #category : 'private - completion' }
-GQLExecutor >> completeValue: aType fields: aFieldCollection result: aResult path: aPath parentType: anObjectType fieldDefinition: aFieldDefinition [
-	| completed |
-	aType isNonNull ifTrue: [
-		completed := self
-			completeValue: aType ofType
-			fields: aFieldCollection
-			result: aResult
-			path: aPath
-			parentType: anObjectType
-			fieldDefinition: aFieldDefinition.
-		completed ifNil: [
-			self
-				fieldError: 'Cannot return null for non-nullable field ' , anObjectType name , '.' , aFieldDefinition name , '.'
-				fields: aFieldCollection
-				path: aPath ].
-		^ completed ].
-	aResult ifNil: [ ^ nil ].
-	aType isList ifTrue: [
-		^ self
-			completeListValue: aType
-			fields: aFieldCollection
-			result: aResult
-			path: aPath
-			parentType: anObjectType
-			fieldDefinition: aFieldDefinition ].
-	aType isLeaf ifTrue: [ ^ self completeLeafValue: aType fields: aFieldCollection result: aResult path: aPath ].
-	aType isObject ifTrue: [ ^ self completeObjectValue: aType fields: aFieldCollection result: aResult path: aPath ].
+GQLExecutor >> completeUnsupportedValue: aType fields: aFieldCollection path: aPath [
+
 	^ self
-		fieldError: 'Cannot complete value of unsupported type "' , aType printString , '".'
-		fields: aFieldCollection
-		path: aPath
+		  fieldError:
+			  'Cannot complete value of unsupported type "' , aType printString
+			  , '".'
+		  fields: aFieldCollection
+		  path: aPath
+]
+
+{ #category : 'private - completion' }
+GQLExecutor >> completeValue: aType fields: aFieldCollection result: aResult path: aPath parentType: anObjectType fieldDefinition: aFieldDefinition [
+	"Double dispatch on aType (non-null, list, leaf or object type)"
+
+	^ aType
+		  completeValue: aResult
+		  fields: aFieldCollection
+		  path: aPath
+		  parentType: anObjectType
+		  fieldDefinition: aFieldDefinition
+		  executor: self
 ]
 
 { #category : 'private' }
@@ -474,9 +529,10 @@ GQLExecutor >> executeSelectionSet: aSelectionSet objectType: anObjectType sourc
 { #category : 'private - executing' }
 GQLExecutor >> fieldDefinitionNamed: aName in: anObjectType [
 	"Answer the GQLFieldDefinition for aName in anObjectType, including meta fields (introspection) of the query type, or nil"
-	(anObjectType fieldNamed: aName) ifNotNil: [ :definition | ^ definition ].
-	anObjectType == schema queryType ifTrue: [ ^ schema metaFieldNamed: aName ].
-	^ nil
+
+	^ (anObjectType fieldNamed: aName) ifNil: [
+			  anObjectType == schema queryType ifTrue: [
+				  schema metaFieldNamed: aName ] ]
 ]
 
 { #category : 'private - errors' }
@@ -488,25 +544,60 @@ GQLExecutor >> fieldError: aMessage fields: aFieldCollection path: aPath [
 	^ GQLFieldError signalFor: error
 ]
 
+{ #category : 'private - variables' }
+GQLExecutor >> inputTypeOfVariable: aVariableDefinition ifInvalid: aBlock [
+	"Answer the resolved input type of aVariableDefinition. Record an error and evaluate aBlock for unknown or non-input types"
+
+	| type |
+	type := [ schema resolveTypeRef: aVariableDefinition typeRef ]
+		        on: Error
+		        do: [ :e | nil ].
+	type ifNil: [
+			self
+				addRequestError:
+					'Unknown type "' , aVariableDefinition typeRef typeName asString
+					, '".'
+				nodes: { aVariableDefinition }.
+			^ aBlock value ].
+	type isInputType ifFalse: [
+			self
+				addRequestError:
+					'Variable "$' , aVariableDefinition name asString
+					, '" cannot be non-input type "' , type printString , '".'
+				nodes: { aVariableDefinition }.
+			^ aBlock value ].
+	^ type
+]
+
+{ #category : 'private - fields collection' }
+GQLExecutor >> isExcludedBy: aDirective [
+	"Answer whether aDirective excludes its selection. Other directives, and if: arguments that are not
+	exactly the excluding Boolean (e.g. non-Boolean literals), have no effect"
+
+	^ (self class excludingConditions
+		   at: aDirective name
+		   ifAbsent: [ ^ false ]) == (self directiveCondition: aDirective)
+]
+
 { #category : 'private - coercion' }
 GQLExecutor >> isListValue: anObject [
 	"Answer whether anObject should be handled as a list of items (Strings and Dictionaries are single values)"
-	anObject ifNil: [ ^ false ].
-	anObject isString ifTrue: [ ^ false ].
-	anObject isDictionary ifTrue: [ ^ false ].
-	anObject isCollection ifTrue: [ ^ true ].
-	^ (anObject respondsTo: #do:) and: [ anObject respondsTo: #asOrderedCollection ]
+
+	(anObject isNil or: [
+		 anObject isString or: [ anObject isDictionary ] ]) ifTrue: [
+		^ false ].
+	^ anObject isCollection or: [
+			  (anObject respondsTo: #do:) and: [
+				  anObject respondsTo: #asOrderedCollection ] ]
 ]
 
 { #category : 'private - errors' }
 GQLExecutor >> locationsOf: aNodeCollection [
 	"Answer an Array of line/column Dictionaries for the nodes having a position, nil if none"
-	| locations |
-	locations := (aNodeCollection select: [ :each | each notNil and: [ each line notNil ] ])
-		collect: [ :each | each location ].
-	^ locations isEmpty
-		ifTrue: [ nil ]
-		ifFalse: [ locations asArray ]
+
+	^ (aNodeCollection
+		   select: [ :each | each notNil and: [ each line notNil ] ]
+		   thenCollect: [ :each | each location ]) asArray ifEmpty: [ nil ]
 ]
 
 { #category : 'accessing' }
@@ -522,12 +613,51 @@ GQLExecutor >> maxListSize: anInteger [
 
 { #category : 'private - errors' }
 GQLExecutor >> messageForException: anException [
+	"Answer the message text of anException, or its class name when it has no usable text"
+
 	| text |
 	text := [ anException messageText ]
-		on: Error
-		do: [ :e | nil ].
-	(text isNil or: [ text isString not or: [ text isEmpty ] ]) ifTrue: [ ^ anException class name asString ].
-	^ text asString
+		        on: Error
+		        do: [ :e | nil ].
+	^ (text isString and: [ text notEmpty ])
+		  ifTrue: [ text asString ]
+		  ifFalse: [ anException class name asString ]
+]
+
+{ #category : 'private - executing' }
+GQLExecutor >> missingArgument: anArgument named: aName fields: aFieldCollection path: aPath [
+	"Answer the value of an argument given neither in the query nor by a default: nil, or a field error when it is required"
+
+	anArgument type isNonNull ifTrue: [
+			^ self
+				  fieldError: 'Argument "' , aName , '" of required type "'
+					  , anArgument type printString , '" was not provided.'
+				  fields: aFieldCollection
+				  path: aPath ].
+	^ nil
+]
+
+{ #category : 'private - variables' }
+GQLExecutor >> missingVariable: aVariableDefinition type: aType [
+	"A variable neither provided nor having a default value is an error only when it is required"
+
+	aType isNonNull ifFalse: [ ^ self ].
+	self
+		addRequestError: 'Variable "$' , aVariableDefinition name asString
+			, '" of required type "' , aType printString
+			, '" was not provided.'
+		nodes: { aVariableDefinition }
+]
+
+{ #category : 'private - executing' }
+GQLExecutor >> operationNamed: aString in: aDocument [
+	"Answer the operation named aString, or nil after recording an error"
+
+	^ (aDocument operationNamed: aString) ifNil: [
+			  self
+				  addRequestError: 'Unknown operation named "' , aString , '".'
+				  nodes: #(  ).
+			  nil ]
 ]
 
 { #category : 'private - executing' }
@@ -547,24 +677,34 @@ GQLExecutor >> resolve: aFieldDefinition source: aSource args: anArgsDictionary 
 { #category : 'private - executing' }
 GQLExecutor >> resolveField: aFieldDefinition fields: aFieldCollection objectType: anObjectType source: aSource path: aPath [
 	"Answer the completed value of a field. Field errors make the value null when the field type is nullable, and are propagated otherwise"
+
 	| type |
 	type := aFieldDefinition type.
-	^ [ | args value |
-		self checkSelectionOf: aFieldDefinition fields: aFieldCollection path: aPath.
-		args := self coerceArgumentsOf: aFieldDefinition fields: aFieldCollection path: aPath.
-		value := self resolve: aFieldDefinition source: aSource args: args fields: aFieldCollection path: aPath.
-		self
-			completeValue: type
-			fields: aFieldCollection
-			result: value
-			path: aPath
-			parentType: anObjectType
-			fieldDefinition: aFieldDefinition ]
-		on: GQLFieldError
-		do: [ :e |
-			type isNonNull
-				ifTrue: [ e pass ]
-				ifFalse: [ nil ] ]
+	^ [
+		  | args value |
+		  self
+			  checkSelectionOf: aFieldDefinition
+			  fields: aFieldCollection
+			  path: aPath.
+		  args := self
+			          coerceArgumentsOf: aFieldDefinition
+			          fields: aFieldCollection
+			          path: aPath.
+		  value := self
+			           resolve: aFieldDefinition
+			           source: aSource
+			           args: args
+			           fields: aFieldCollection
+			           path: aPath.
+		  self
+			  completeValue: type
+			  fields: aFieldCollection
+			  result: value
+			  path: aPath
+			  parentType: anObjectType
+			  fieldDefinition: aFieldDefinition ]
+		  on: GQLFieldError
+		  do: [ :e | type recoverFromFieldError: e ]
 ]
 
 { #category : 'private - response' }
@@ -608,39 +748,25 @@ GQLExecutor >> schema: aGQLSchema [
 { #category : 'private - executing' }
 GQLExecutor >> selectOperationNamed: anOperationNameOrNil in: aDocument [
 	"Answer the operation to execute, or nil after recording an error"
-	| operations operation |
-	operations := aDocument operations.
-	(anOperationNameOrNil isNil or: [ anOperationNameOrNil isString and: [ anOperationNameOrNil isEmpty ] ])
-		ifTrue: [
-			operations isEmpty ifTrue: [
-				self addRequestError: 'Must provide an operation.' nodes: #().
-				^ nil ].
-			operations size > 1 ifTrue: [
-				self addRequestError: 'Must provide operation name if query contains multiple operations.' nodes: #().
-				^ nil ].
-			operation := operations first ]
-		ifFalse: [
-			operation := aDocument operationNamed: anOperationNameOrNil asString.
-			operation ifNil: [
-				self addRequestError: 'Unknown operation named "' , anOperationNameOrNil asString , '".' nodes: #().
-				^ nil ] ].
-	operation isMutation ifTrue: [
-		self addRequestError: 'Schema is not configured for mutations.' nodes: { operation }.
-		^ nil ].
-	operation isSubscription ifTrue: [
-		self addRequestError: 'Schema is not configured for subscriptions.' nodes: { operation }.
-		^ nil ].
-	^ operation
+
+	| operation |
+	operation := (anOperationNameOrNil isNil or: [
+		              anOperationNameOrNil isString and: [
+			              anOperationNameOrNil isEmpty ] ])
+		             ifTrue: [ self uniqueOperationIn: aDocument ]
+		             ifFalse: [
+		             self
+			             operationNamed: anOperationNameOrNil asString
+			             in: aDocument ].
+	^ operation ifNotNil: [ self supportedOperation: operation ]
 ]
 
 { #category : 'private - fields collection' }
 GQLExecutor >> shouldInclude: aSelection [
 	"Apply the @skip(if:) and @include(if:) directives"
-	aSelection directives ifNil: [ ^ true ].
-	aSelection directives do: [ :directive |
-		(directive name = 'skip' and: [ (self directiveCondition: directive) == true ]) ifTrue: [ ^ false ].
-		(directive name = 'include' and: [ (self directiveCondition: directive) == false ]) ifTrue: [ ^ false ] ].
-	^ true
+
+	^ (aSelection directives ifNil: [ ^ true ]) noneSatisfy: [ :directive |
+		  self isExcludedBy: directive ]
 ]
 
 { #category : 'private - errors' }
@@ -651,6 +777,23 @@ GQLExecutor >> staticFieldError: aMessage fields: aFieldCollection path: aPath [
 	error := GQLError message: aMessage path: aPath locations: (self locationsOf: aFieldCollection).
 	context addErrorOnce: error.
 	^ GQLFieldError signalFor: error
+]
+
+{ #category : 'private - executing' }
+GQLExecutor >> supportedOperation: anOperation [
+	"Answer anOperation if it can be executed (only queries are supported), or nil after recording an error"
+
+	anOperation isMutation ifTrue: [
+			self
+				addRequestError: 'Schema is not configured for mutations.'
+				nodes: { anOperation }.
+			^ nil ].
+	anOperation isSubscription ifTrue: [
+			self
+				addRequestError: 'Schema is not configured for subscriptions.'
+				nodes: { anOperation }.
+			^ nil ].
+	^ anOperation
 ]
 
 { #category : 'private - response' }
@@ -670,4 +813,32 @@ GQLExecutor >> syntaxErrorResponse: aSyntaxError [
 { #category : 'private - fields collection' }
 GQLExecutor >> typeCondition: aTypeNameOrNil appliesTo: anObjectType [
 	^ aTypeNameOrNil isNil or: [ aTypeNameOrNil asString = anObjectType name ]
+]
+
+{ #category : 'private - executing' }
+GQLExecutor >> uniqueOperationIn: aDocument [
+	"Answer the only operation of aDocument, or nil after recording an error"
+
+	| operations |
+	operations := aDocument operations.
+	operations ifEmpty: [
+			self addRequestError: 'Must provide an operation.' nodes: #(  ).
+			^ nil ].
+	operations size > 1 ifTrue: [
+			self
+				addRequestError:
+				'Must provide operation name if query contains multiple operations.'
+				nodes: #(  ).
+			^ nil ].
+	^ operations first
+]
+
+{ #category : 'private - fields collection' }
+GQLExecutor >> unknownFragment: aFragmentSpread path: aPath [
+
+	context addErrorOnce: (GQLError
+			 message:
+			 'Unknown fragment "' , aFragmentSpread name asString , '".'
+			 path: aPath
+			 locations: (self locationsOf: { aFragmentSpread }))
 ]
