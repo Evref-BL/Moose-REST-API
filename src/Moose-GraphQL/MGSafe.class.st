@@ -63,6 +63,25 @@ MGSafe class >> entitiesIn: anObject [
 ]
 
 { #category : 'printing' }
+MGSafe class >> entityNameOf: anEntity [
+	"Answer a short String naming anEntity: its mooseName, unless that is empty or only its mooseID (MooseObject fallback, possibly cached before the entity got a name), in which case its name when it has a non-empty one. The mooseID is kept only for entities that genuinely have no name. May raise; use #nameOf:."
+
+	| mooseName entityName |
+	mooseName := self
+		             do: [ anEntity mooseName ifNotNil: [ :n | n asString ] ]
+		             default: nil.
+	(mooseName isEmptyOrNil or: [
+		 mooseName
+		 = (self do: [ anEntity mooseID printString ] default: nil) ])
+		ifFalse: [ ^ mooseName ].
+	entityName := self
+		              do: [ anEntity name ifNotNil: [ :n | n asString ] ]
+		              default: nil.
+	entityName isEmptyOrNil ifFalse: [ ^ entityName ].
+	^ mooseName ifNil: [ anEntity printString ]
+]
+
+{ #category : 'printing' }
 MGSafe class >> errorString: anError [
 	"Answer '<error: message>' for anError. Never raises."
 
@@ -102,14 +121,11 @@ MGSafe class >> maxPrintSize [
 
 { #category : 'printing' }
 MGSafe class >> nameOf: anObject [
-	"Answer a short String naming anObject: mooseName for entities, ISO 8601 for dates, times and durations (see MGTemporalFormat), printString otherwise (never raises)."
+	"Answer a short String naming anObject: for entities their mooseName, or their name when the mooseName is empty or only the mooseID (see #entityNameOf:); ISO 8601 for dates, times and durations (see MGTemporalFormat); printString otherwise (never raises)."
 
 	^ [
 		  (self isEntity: anObject)
-			  ifTrue: [
-					  anObject mooseName
-						  ifNil: [ anObject printString ]
-						  ifNotNil: [ :n | n asString ] ]
+			  ifTrue: [ self entityNameOf: anObject ]
 			  ifFalse: [
 			  (MGTemporalFormat print: anObject) ifNil: [ anObject printString ] ] ]
 		  on: Error

@@ -174,6 +174,96 @@ MGRegistryTest >> testModelRoundTrip [
 	self assert: (self registry idOfModel: FamixTest1Model new) isNil
 ]
 
+{ #category : 'tests - temporal' }
+MGRegistryTest >> testObjectPropertyTypeIsTemporalScalarName [
+	"The type of an Object-typed property (AnnotationInstanceAttribute.value) holding a date, time or duration is the GraphQL scalar name of that value;
+	holding any other non-entity value it stays the FM3 type name 'Object'. A property with a non-Object FM3 type keeps that type name"
+
+	| annotationModel foo values attributes reg types |
+	annotationModel := FamixStModel new name: 'MGTestAnnotations'.
+	foo := FamixStClass named: 'Foo'.
+	annotationModel add: foo.
+	values := {
+		          (DateAndTime
+			           year: 2017
+			           month: 7
+			           day: 4
+			           hour: 4
+			           minute: 5
+			           second: 6
+			           offset: (Duration hours: 2)).
+		          (Date year: 2017 month: 7 day: 4).
+		          (Time hour: 4 minute: 5 second: 6).
+		          (Duration seconds: 5).
+		          'x'.
+		          3 }.
+	attributes := values collect: [ :each |
+		              FamixStAnnotationInstanceAttribute new ].
+	annotationModel addAll: attributes.
+	values
+		with: attributes
+		do: [ :each :attribute | attribute value: each ].
+	reg := MGRegistry forModel: annotationModel.
+	types := attributes collect: [ :attribute |
+			         ((reg propertiesOf: attribute)
+				          detect: [ :p | p name = 'value' ]
+				          ifNone: [ nil ]) ifNotNil: [ :p | p type ] ].
+	self
+		assert: types asArray
+		equals: #( 'DateTime' 'Date' 'Time' 'Duration' 'Object' 'Object' ).
+	self
+		assert: ((reg propertiesOf: foo)
+				 detect: [ :p | p name = 'name' ]
+				 ifNone: [ nil ]) type
+		equals: 'String'
+]
+
+{ #category : 'tests - temporal' }
+MGRegistryTest >> testObjectPropertyValuesArePropertiesOrRelations [
+	"An Object-typed property (AnnotationInstanceAttribute.value) holding a non-entity value, such as a DateAndTime, is listed as a property whose value prints in ISO 8601 and not as a relation;
+	holding an entity, it stays a relation to that entity"
+
+	| annotationModel dated linked reg property relation |
+	annotationModel := FamixStModel new name: 'MGTestAnnotations'.
+	dated := FamixStAnnotationInstanceAttribute new.
+	linked := FamixStAnnotationInstanceAttribute new.
+	annotationModel addAll: {
+			dated.
+			linked }.
+	dated value: (DateAndTime
+			 year: 2017
+			 month: 7
+			 day: 4
+			 hour: 4
+			 minute: 5
+			 second: 6
+			 offset: (Duration hours: 2)).
+	linked value: dated.
+	reg := MGRegistry forModel: annotationModel.
+	"temporal value: a property, not a relation"
+	property := (reg propertiesOf: dated)
+		            detect: [ :p | p name = 'value' ]
+		            ifNone: [ nil ].
+	self assert: property notNil.
+	self assert: property value equals: '2017-07-04T04:05:06+02:00'.
+	self assert: property id equals: (reg idOfEntity: dated) , '/value'.
+	self
+		assert: (reg propertyAt: property id) value
+		equals: '2017-07-04T04:05:06+02:00'.
+	self deny:
+		((reg relationsOf: dated) anySatisfy: [ :r | r name = 'value' ]).
+	self assert: (reg relationAt: property id) isNil.
+	"entity value: a relation, not a property"
+	self deny:
+		((reg propertiesOf: linked) anySatisfy: [ :p | p name = 'value' ]).
+	relation := (reg relationsOf: linked)
+		            detect: [ :r | r name = 'value' ]
+		            ifNone: [ nil ].
+	self assert: relation notNil.
+	self assert: relation target identicalTo: dated.
+	self deny: relation isMultivalued
+]
+
 { #category : 'tests - features' }
 MGRegistryTest >> testPropertiesAndRelationsAreSorted [
 	"Properties and relations are sorted by name and unique; name is a property, methods/attributes are relations"

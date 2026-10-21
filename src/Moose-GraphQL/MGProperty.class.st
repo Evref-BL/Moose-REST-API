@@ -79,8 +79,16 @@ MGProperty >> setEntity: anEntity property: anFM3Property registry: aRegistry [
 
 { #category : 'accessing' }
 MGProperty >> type [
-	"Name of the property type, or nil"
-	^ MGSafe do: [ property type ifNotNil: [ :t | t name asString ] ] default: nil
+	"Name of the property type, or nil. For a property typed Object (FM3Object) holding a date, time or duration, the GraphQL scalar name of that value (see MGTemporalFormat scalarNameOf:)"
+
+	^ MGSafe
+		  do: [
+				  property type ifNotNil: [ :t |
+						  ((t isKindOf: FM3Object) ifTrue: [
+							   MGTemporalFormat scalarNameOf:
+								   (entity mmGetProperty: property) ]) ifNil: [
+							  t name asString ] ] ]
+		  default: nil
 ]
 
 { #category : 'accessing' }

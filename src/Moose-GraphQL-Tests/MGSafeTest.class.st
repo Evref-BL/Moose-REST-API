@@ -47,6 +47,34 @@ MGSafeTest >> testEntitiesIn [
 			m2 }
 ]
 
+{ #category : 'tests - printValue' }
+MGSafeTest >> testNameOfEntityWithIdOnlyMooseName [
+	"An entity is named by its mooseName, except when that mooseName is only its mooseID (MooseObject fallback, possibly cached before the entity got a name):
+	then its name is used. An entity that genuinely has no name keeps its mooseID (existing convention)"
+
+	| localModel named unnamed |
+	localModel := FamixStModel new name: 'MGTestNameOf'.
+	named := FamixStClass named: 'Bar'.
+	unnamed := FamixStAnnotationInstanceAttribute new.
+	localModel
+		add: named;
+		add: unnamed.
+	self assert: (MGSafe nameOf: named) equals: 'Bar'.
+	"Simulate a stale cache: the mooseName was computed (as the id) before the name was set"
+	named
+		instVarNamed: 'mooseName'
+		put: named mooseID printString asSymbol.
+	self
+		assert: named mooseName
+		equals: named mooseID printString asSymbol.
+	self assert: (MGSafe nameOf: named) equals: 'Bar'.
+	self assert: (MGSafe printValue: named) equals: 'Bar'.
+	"Unnamed entity: the id is the only name"
+	self
+		assert: (MGSafe nameOf: unnamed)
+		equals: unnamed mooseID printString
+]
+
 { #category : 'tests - take' }
 MGSafeTest >> testNormalizeTake [
 
@@ -118,6 +146,42 @@ MGSafeTest >> testPrintValueScalars [
 	self assert: (MGSafe printValue: 3 / 4) equals: '(3/4)'.
 	self assert: (MGSafe printValue: true) equals: 'true'.
 	self assert: (MGSafe printValue: false) equals: 'false'
+]
+
+{ #category : 'tests - printValue' }
+MGSafeTest >> testPrintValueTemporal [
+	"Dates, times, date-and-times and durations print in ISO 8601 (see MGTemporalFormat), alone, inside collections and through nameOf:"
+
+	self
+		assert: (MGSafe printValue: (Date year: 2017 month: 7 day: 4))
+		equals: '2017-07-04'.
+	self
+		assert: (MGSafe printValue: (Time hour: 4 minute: 5 second: 6))
+		equals: '04:05:06'.
+	self
+		assert: (MGSafe printValue: (DateAndTime
+					  year: 2017
+					  month: 7
+					  day: 4
+					  hour: 4
+					  minute: 5
+					  second: 6
+					  offset: (Duration hours: 2)))
+		equals: '2017-07-04T04:05:06+02:00'.
+	self
+		assert: (MGSafe printValue: (Duration seconds: 5))
+		equals: 'PT5S'.
+	self
+		assert: (MGSafe printValue: {
+					 (Date year: 2017 month: 7 day: 4).
+					 (Duration seconds: 5) })
+		equals: '2 items: (2017-07-04, PT5S)'.
+	self
+		assert: (MGSafe nameOf: (Date year: 2017 month: 7 day: 4))
+		equals: '2017-07-04'.
+	self assert: (MGSafe nameOf: (Duration minutes: -2)) equals: '-PT2M'.
+	"a Timespan that is not a Date keeps its usual printString"
+	self assert: (MGSafe printValue: Month current) isString
 ]
 
 { #category : 'tests - printValue' }

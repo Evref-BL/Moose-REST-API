@@ -15,6 +15,25 @@ Class {
 }
 
 { #category : 'helpers' }
+MGModelSchemaTest >> annotationModelWithValues: aCollection [
+	"A separate model (never installed, name starting with MGTest so that tearDown cleans it anyway) holding a class named Foo and one AnnotationInstanceAttribute per element of aCollection, whose Object-typed value is that element.
+	A one-argument block is evaluated with the model to answer the value (e.g. an entity of the model).
+	The Foo class makes Object satisfied by two concrete classes: when value stays a relation, it is typed with the helper type Object"
+
+	| annotationModel attributes |
+	annotationModel := FamixStModel new name: 'MGTestAnnotations'.
+	annotationModel add: (FamixStClass named: 'Foo').
+	attributes := aCollection collect: [ :each |
+		              FamixStAnnotationInstanceAttribute new ].
+	annotationModel addAll: attributes.
+	aCollection with: attributes do: [ :each :attribute |
+			attribute value: (each isBlock
+					 ifTrue: [ each value: annotationModel ]
+					 ifFalse: [ each ]) ].
+	^ annotationModel
+]
+
+{ #category : 'helpers' }
 MGModelSchemaTest >> assertSweepOf: aSchema model: aMooseModel [
 	"Query every entity of every root concept selecting all its scalar fields (built from introspection); assert no exception escapes, no GraphQL error is reported and every list has the expected size.
 	Some properties raise internally (e.g. numberOfAbstractMethods on FamixTest1Class): they must resolve to null, not to an error"
@@ -543,6 +562,169 @@ MGModelSchemaTest >> testNumberValuesAreIntegers [
 	self assert: (MGModelSchemaBuilder serializeNumber: 'x') isNil
 ]
 
+{ #category : 'tests - temporal' }
+MGModelSchemaTest >> testObjectPropertyWithDateAndTimesIsDateTime [
+	"AnnotationInstanceAttribute.value is typed Object (FM3Object): when its sampled values are only DateAndTimes it becomes a DateTime scalar field (not a relation),
+	values are serialized in ISO 8601 keeping their offset, nil answers null, and the Object helper type is not defined since nothing uses it"
+
+	| result |
+	result := self
+		          valueTypeAndDataOf: (self annotationModelWithValues: {
+					           (DateAndTime
+						            year: 2017
+						            month: 7
+						            day: 4
+						            hour: 4
+						            minute: 5
+						            second: 6
+						            offset: (Duration hours: 2)).
+					           (DateAndTime
+						            year: 2020
+						            month: 1
+						            day: 31
+						            hour: 23
+						            minute: 59
+						            second: 0
+						            nanoSecond: 500000000
+						            offset: Duration zero).
+					           nil })
+		          selection: ''.
+	self assert: result first equals: #( 'SCALAR' 'DateTime' ).
+	self deny: (result second includes: 'Object').
+	self assert: (result second includesAll:
+			 #( 'Date' 'Time' 'DateTime' 'Duration' 'Number' )).
+	self
+		assert: result third asBag
+		equals:
+			#( '2017-07-04T04:05:06+02:00' '2020-01-31T23:59:00.5+00:00'
+			   nil ) asBag
+]
+
+{ #category : 'tests - temporal' }
+MGModelSchemaTest >> testObjectPropertyWithEntitiesStaysRelation [
+	"Object-typed values that are only entities keep the property a relation, typed with the helper type Object (satisfied by AnnotationInstanceAttribute and Class), resolving to the entities"
+
+	| result entities |
+	result := self
+		          valueTypeAndDataOf: (self annotationModelWithValues: {
+					           [ :m | m allClasses first ].
+					           [ :m | m allClasses first ].
+					           nil })
+		          selection: ' { type name }'.
+	self assert: result first equals: #( 'OBJECT' 'Object' ).
+	self assert: (result second includes: 'Object').
+	self assert: (result third count: [ :v | v isNil ]) equals: 1.
+	entities := result third reject: [ :v | v isNil ].
+	self assert: entities size equals: 2.
+	entities do: [ :v |
+			self assert: (v at: 'type') equals: 'Class'.
+			self assert: (v at: 'name') equals: 'Foo' ]
+]
+
+{ #category : 'tests - temporal' }
+MGModelSchemaTest >> testObjectPropertyWithMixedValuesIsString [
+	"Object-typed values of several kinds (an entity with a Date, two temporal kinds, Strings with Numbers) give a String field printing each value (temporal values in ISO 8601);
+	values of one plain kind give that scalar.
+	The entity value is the named FamixStClass Foo: it must print as its name 'Foo', never as its bare mooseID"
+
+	| annotationModel foo result |
+	annotationModel := self annotationModelWithValues: {
+			         [ :m | m allClasses detect: [ :c | c name = 'Foo' ] ].
+			         (Date year: 2017 month: 7 day: 4) }.
+	foo := annotationModel allClasses detect: [ :c | c name = 'Foo' ].
+	result := self valueTypeAndDataOf: annotationModel selection: ''.
+	self assert: result first equals: #( 'SCALAR' 'String' ).
+	self deny: (result second includes: 'Object').
+	self assert: (result third allSatisfy: [ :v | v isString ]).
+	self assert: result third asBag equals: #( 'Foo' '2017-07-04' ) asBag.
+	self deny: (result third includes: foo mooseID printString).
+	result := self
+		          valueTypeAndDataOf: (self annotationModelWithValues: {
+					           (Date year: 2017 month: 7 day: 4).
+					           (Duration seconds: 5) })
+		          selection: ''.
+	self assert: result first equals: #( 'SCALAR' 'String' ).
+	self
+		assert: result third asBag
+		equals: #( '2017-07-04' 'PT5S' ) asBag.
+	result := self
+		          valueTypeAndDataOf:
+		          (self annotationModelWithValues: #( 'x' 3 ))
+		          selection: ''.
+	self assert: result first equals: #( 'SCALAR' 'String' ).
+	self assert: result third asBag equals: #( 'x' '3' ) asBag.
+	result := self
+		          valueTypeAndDataOf:
+		          (self annotationModelWithValues: #( 4 3 ))
+		          selection: ''.
+	self assert: result first equals: #( 'SCALAR' 'Number' ).
+	self assert: result third asBag equals: #( 4 3 ) asBag.
+	result := self
+		          valueTypeAndDataOf:
+		          (self annotationModelWithValues: #( true false ))
+		          selection: ''.
+	self assert: result first equals: #( 'SCALAR' 'Boolean' ).
+	self assert: result third asBag equals: #( true false ) asBag.
+	result := self
+		          valueTypeAndDataOf:
+		          (self annotationModelWithValues: #( 'a' 'b' ))
+		          selection: ''.
+	self assert: result first equals: #( 'SCALAR' 'String' ).
+	self assert: result third asBag equals: #( 'a' 'b' ) asBag
+]
+
+{ #category : 'tests - temporal' }
+MGModelSchemaTest >> testObjectPropertyWithOtherTemporalKinds [
+	"Object-typed values that are only Dates, only Times or only Durations give the Date, Time or Duration scalar, serialized in ISO 8601"
+
+	{
+		({
+			 (Date year: 2017 month: 7 day: 4).
+			 (Date year: 2016 month: 2 day: 29) }
+		 -> #( 'Date' #( '2017-07-04' '2016-02-29' ) )).
+		({
+			 (Time hour: 4 minute: 5 second: 6).
+			 (Time
+				  hour: 16
+				  minute: 5
+				  second: 6
+				  nanoSecond: 250000000) }
+		 -> #( 'Time' #( '04:05:06' '16:05:06.25' ) )).
+		({
+			 (Duration seconds: -5).
+			 Duration zero.
+			 (Duration
+				  days: 1
+				  hours: 2
+				  minutes: 3
+				  seconds: 4) }
+		 -> #( 'Duration' #( '-PT5S' 'PT0S' 'P1DT2H3M4S' ) )) } do: [ :each |
+			| result |
+			result := self
+				          valueTypeAndDataOf:
+				          (self annotationModelWithValues: each key)
+				          selection: ''.
+			self assert: result first equals: {
+					'SCALAR'.
+					each value first }.
+			self deny: (result second includes: 'Object').
+			self assert: result third asBag equals: each value second asBag ]
+]
+
+{ #category : 'tests - temporal' }
+MGModelSchemaTest >> testObjectPropertyWithoutValuesStaysRelation [
+	"With no value to sample (all nil), an Object-typed property stays a relation typed with the helper type Object, resolving to null"
+
+	| result |
+	result := self
+		          valueTypeAndDataOf:
+		          (self annotationModelWithValues: #( nil nil ))
+		          selection: ' { id }'.
+	self assert: result first equals: #( 'OBJECT' 'Object' ).
+	self assert: (result second includes: 'Object').
+	self assert: result third asArray equals: #( nil nil )
+]
+
 { #category : 'tests' }
 MGModelSchemaTest >> testObjectTypesAreModelConcepts [
 	"The object types are exactly the concrete concepts having instances in the fixture model; the generic types are absent"
@@ -668,14 +850,15 @@ MGModelSchemaTest >> testRelationsWithoutConformingConceptAreDropped [
 
 { #category : 'tests' }
 MGModelSchemaTest >> testReservedNamesAndNameHelpers [
-	"Reserved names (GraphQL built-ins, Query, Number, __*) fall back to the sanitized fullName, and names are made unique and valid"
+	"Reserved names (GraphQL built-ins, Query, Number, the temporal scalars Date, Time, DateTime and Duration, __*) fall back to the sanitized fullName, and names are made unique and valid"
 
 	| builder query byShortName used |
 	builder := MGModelSchemaBuilder on: model.
-	#( 'Query' 'String' 'Int' 'Float' 'Boolean' 'ID' 'Number' '__Type' )
+	#( 'Query' 'String' 'Int' 'Float' 'Boolean' 'ID' 'Number' 'Date' 'Time' 'DateTime' 'Duration' '__Type' )
 		do: [ :n |
 		self assert: (builder isReservedTypeName: n) description: n ].
 	self deny: (builder isReservedTypeName: 'Class').
+	self deny: (builder isReservedTypeName: 'DateAndTime').
 	"a concept named Query in package My-Pkg is renamed after its fullName"
 	query := MGConcept
 		         rootType: (FM3Class new
@@ -786,4 +969,176 @@ MGModelSchemaTest >> testSweepAllScalarFieldsOfAllRootConcepts [
 			self
 				assertSweepOf: (MGModelSchemaBuilder buildFor: commented)
 				model: commented ]
+]
+
+{ #category : 'tests - temporal' }
+MGModelSchemaTest >> testSweepOfTemporalAndMixedModels [
+	"Selecting all scalar fields (temporal value included) of every entity of models with temporal, mixed or missing Object values raises nothing and reports no GraphQL error"
+
+	{
+		{
+			(DateAndTime
+				 year: 2017
+				 month: 7
+				 day: 4
+				 hour: 4
+				 minute: 5
+				 second: 6
+				 offset: (Duration hours: -7)).
+			nil }.
+		{
+			(Duration seconds: -5).
+			(Duration days: 3) }.
+		{
+			(Date year: 2017 month: 7 day: 4).
+			(Time hour: 4 minute: 5 second: 6).
+			[ :m | m allClasses first ].
+			'x'.
+			42.
+			nil } } do: [ :values |
+			| annotationModel data |
+			annotationModel := self annotationModelWithValues: values.
+			data := self
+				        assertSweepOf:
+				        (MGModelSchemaBuilder buildFor: annotationModel)
+				        model: annotationModel.
+			self
+				assert: (data at: 'annotationInstanceAttributes') size
+				equals: values size ]
+]
+
+{ #category : 'tests - temporal' }
+MGModelSchemaTest >> testTemporalScalarsCoercion [
+	"The Date, Time, DateTime and Duration scalars are always defined (even when no property uses them);
+	their coercion accepts a valid ISO 8601 String (answering the Pharo value) or a value of that kind, and signals GQLCoercionError otherwise"
+
+	| schema |
+	schema := MGModelSchemaBuilder buildFor: model.
+	{
+		('Date' -> {
+			 '2017-07-04'.
+			 (Date year: 2017 month: 7 day: 4).
+			 '2017-02-30' }).
+		('Time' -> {
+			 '04:05:06'.
+			 (Time hour: 4 minute: 5 second: 6).
+			 '24:00' }).
+		('DateTime' -> {
+			 '2017-07-04T04:05:06Z'.
+			 (DateAndTime
+				  year: 2017
+				  month: 7
+				  day: 4
+				  hour: 4
+				  minute: 5
+				  second: 6
+				  offset: Duration zero).
+			 '2017-07-04' }).
+		('Duration' -> {
+			 'PT5S'.
+			 (Duration seconds: 5).
+			 'P1Y' }) } do: [ :each |
+			| type |
+			type := schema typeNamed: each key.
+			self assert: type notNil description: each key.
+			self assert: type isScalar.
+			self
+				assert: (type coerce: each value first)
+				equals: each value second.
+			self
+				assert: (type coerce: each value second)
+				equals: each value second.
+			self
+				assert:
+				(MGModelSchemaBuilder
+					 coerceTemporal: each value first
+					 as: each key)
+				equals: each value second.
+			self assert:
+				(MGModelSchemaBuilder
+					 coerceTemporal: each value third
+					 as: each key) isNil.
+			self
+				should: [ type coerce: each value third ]
+				raise: GQLCoercionError.
+			self should: [ type coerce: 42 ] raise: GQLCoercionError.
+			self should: [ type coerce: 'garbage' ] raise: GQLCoercionError ].
+	"a value of another temporal kind is rejected too"
+	self
+		should: [ (schema typeNamed: 'Date') coerce: (Duration seconds: 5) ]
+		raise: GQLCoercionError
+]
+
+{ #category : 'tests - temporal' }
+MGModelSchemaTest >> testTemporalSerializerMismatchAnswersNil [
+	"serializeTemporal:as: answers the ISO 8601 String of a value of the right kind, a String already valid for that scalar as is, and nil (never raising) for anything else"
+
+	| schema |
+	self
+		assert: (MGModelSchemaBuilder
+				 serializeTemporal: (Date year: 2017 month: 7 day: 4)
+				 as: 'Date')
+		equals: '2017-07-04'.
+	self
+		assert: (MGModelSchemaBuilder
+				 serializeTemporal: (Duration seconds: 5)
+				 as: 'Duration')
+		equals: 'PT5S'.
+	self
+		assert: (MGModelSchemaBuilder
+				 serializeTemporal: '2017-07-04T04:05:06Z'
+				 as: 'DateTime')
+		equals: '2017-07-04T04:05:06Z'.
+	{
+		((Duration seconds: 5) -> 'Date').
+		((Date year: 2017 month: 7 day: 4) -> 'DateTime').
+		((Time hour: 4 minute: 5 second: 6) -> 'Duration').
+		('2017-02-30' -> 'Date').
+		('not a date' -> 'DateTime').
+		(42 -> 'Time').
+		(nil -> 'Date').
+		(Object new -> 'Duration').
+		(Month current -> 'Date').
+		((Date year: 2017 month: 7 day: 4) -> 'Foo') } do: [ :each |
+			self
+				shouldnt: [
+						self assert:
+							(MGModelSchemaBuilder
+								 serializeTemporal: each key
+								 as: each value) isNil ]
+				raise: Error ].
+	"through the scalar types of a schema"
+	schema := MGModelSchemaBuilder buildFor: model.
+	self assert:
+		((schema typeNamed: 'Date') serialize: (Duration seconds: 1)) isNil.
+	self
+		assert:
+		((schema typeNamed: 'Duration') serialize: (Duration seconds: 1))
+		equals: 'PT1S'
+]
+
+{ #category : 'helpers' }
+MGModelSchemaTest >> valueTypeAndDataOf: anAnnotationModel selection: aSelectionString [
+	"Build the schema of anAnnotationModel and answer an Array with: the kinds of AnnotationInstanceAttribute.value (see #kindsOf:), the set of the names of all the schema types, and the values of value for all attributes (aSelectionString is appended to value, e.g. '' or ' { id type }')"
+
+	| schema introspected valueField data |
+	schema := MGModelSchemaBuilder buildFor: anAnnotationModel.
+	introspected := self
+		                introspectedSchemaOf: schema
+		                model: anAnnotationModel.
+	valueField := (self
+		               fieldsOfType: 'AnnotationInstanceAttribute'
+		               in: introspected) at: 'value'.
+	data := self dataFrom: (self
+			         query:
+			         '{ annotationInstanceAttributes { value'
+			         , aSelectionString , ' } }'
+			         variables: nil
+			         on: schema
+			         model: anAnnotationModel).
+	^ {
+		  (self kindsOf: (valueField at: 'type')).
+		  ((introspected at: 'types') collect: [ :t | t at: 'name' ]) asSet.
+		  ((data at: 'annotationInstanceAttributes') collect: [ :each |
+			   each at: 'value' ]) }
 ]
