@@ -5,6 +5,7 @@ Lets other tools query Moose models over HTTP. It includes a generic GraphQL ser
 ## Features
 
 - **Moose-GraphQL**: one GraphQL schema that works with any Moose model (models, entities, meta-classes, properties and relations). Start it with one line: `MGServer start`.
+- **Model mode**: serve one model, with its metamodel's entity types (`Class`, `Method`, ...) as GraphQL concepts: `MGServer startOnModel: aModel`. See [Model mode](#model-mode).
 - **GraphQL-Core**: a GraphQL engine that does not depend on Moose. It has a parser, a schema DSL, an executor, introspection, and a Zinc HTTP server with CORS.
 - **Errors stay local**: a field that fails returns `null` and adds an entry to `errors`. The rest of the response is still returned.
 - **Works with fluid**, the GraphQL graph explorer, through introspection.
@@ -85,6 +86,7 @@ MGServer stop.
 - The server listens on the loopback interface only. Both `localhost` and `127.0.0.1` work.
 - `startOn:` stops any server that is already running.
 - The server builds a new model registry for each request, so models you install appear right away.
+- To serve one model with its own entity types as concepts, see [Model mode](#model-mode).
 
 ### 3. Query it
 
@@ -118,7 +120,7 @@ fluid is a GraphQL graph explorer. It reads the schema through introspection.
 
 ## Schema
 
-The schema is generic and works with any metamodel.
+In generic mode (`MGServer start`), the schema is generic and works with any metamodel. For a schema built from the entity types of one model, see [Model mode](#model-mode).
 
 ```graphql
 type Query {
@@ -249,6 +251,66 @@ Result (trimmed):
 { entities(type: "Method", take: 5) { id name model { name } } }
 ```
 
+## Model mode
+
+The generic mode (`MGServer start` / `MGServer startOn: aPort`) is unchanged. It exposes every installed model through the meta-level concepts `Model`, `Entity`, `MetaClass`, `Property` and `Relation`.
+
+Model mode exposes **one** model. Its concepts are the entity types of the model's metamodel. For example, on a FamixSmalltalk model the concepts are `Class`, `Method`, `Access`, and so on.
+
+### Start a model server
+
+```st
+model := MooseModel root detect: [ :m | m name = 'MyModel' ].
+MGServer startOnModel: model.          "port 4000"
+MGServer startOn: 8080 model: model.   "custom port"
+MGServer currentModel.                 "the served model, nil in generic mode"
+MGServer restart.                      "same port and model, schema rebuilt"
+MGServer stop.                         "also clears currentModel"
+```
+
+- The schema is a snapshot of the model's types at start. If the model changes, call `MGServer restart` to rebuild it.
+- An empty model raises `MGEmptyModelError` (`Model <name> has no entity to expose`). A server that is already running is left untouched.
+
+### Concepts
+
+- A root concept is created for each concrete metamodel class that has at least one instance in the model.
+- Each root concept gets two root query fields:
+  - a plural lowerFirst list, `[T!]!` with `take: Int`, e.g. `classes`, `methods`, `attributes`;
+  - a singular by-id field, `T` with `id: ID!`, e.g. `class(id:)`. An id of another concept returns `null`.
+- A concept's list also includes the instances of its conforming subclasses.
+
+### Fields
+
+- Every type has `id: ID!`, `name: String` and `type: String` (the concrete meta-class name).
+- Each primitive FM3 property adds one scalar field (`[T]` when multivalued). Scalars are `String`, `Boolean`, and a custom `Number` scalar that keeps integers. Other values are printed as `String`.
+- Derived properties are included. A value that cannot be computed resolves to `null`.
+- A property named `id` is exposed as `id_`. Properties named `name` or `type` are shadowed by the identity fields.
+
+### Relations
+
+- When exactly one concept conforms to the declared FM3 type, the relation is typed with that concept, e.g. `Class.methods: [Method!]!` and `Method.parentType: Class`. Multivalued relations take `take: Int`.
+- When no concept with instances conforms to the target type, the relation is dropped (for example comments or tags when the model has none).
+- When two or more concepts conform, the relation is typed with a hidden helper type named after the trait (e.g. `TWithComments`). It is navigable, but it has no root query, so it does not appear on the Concepts page.
+
+### Naming
+
+Types use the short FM3 name (`Class`, `Method`). On a collision, or when the short name is reserved by GraphQL, the sanitized full name is used instead (e.g. `FamixTest1Entities_Class`).
+
+### Example
+
+```graphql
+{ classes(take: 5) { id name type methods(take: 3) { id name parentType { name } } } }
+```
+
+### Main classes
+
+| Class | Role |
+|---|---|
+| `MGModelSchemaBuilder` | `buildFor: aMooseModel` builds the model-mode schema |
+| `MGConcept` | One GraphQL type of the model: a root concept or a hidden helper type |
+| `MGRegistry` | Per-request context; `forModel:` creates it for one model |
+| `MGEmptyModelError` | Signaled when the model has no entity to expose |
+
 ## Resilience
 
 - If one field fails, that field becomes `null` and an entry is added to `errors`. The rest of the response is kept.
@@ -281,4 +343,4 @@ The original REST API packages (`Moose-REST-API`, `Moose-REST-API-Generator`, ba
 
 ## Tests
 
-Load the `Tests` group. It contains the test packages `GraphQL-Core-Tests` and `Moose-GraphQL-Tests`.
+Load the `Tests` group. It contains the test packages `GraphQL-Core-Tests` and `Moose-GraphQL-Tests`. Model mode is tested by `MGModelSchemaTest` and `MGModelServerTest` in `Moose-GraphQL-Tests`.
