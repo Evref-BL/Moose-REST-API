@@ -20,7 +20,7 @@ Loads the `default` group: every package, including the legacy REST API.
 
 ```st
 Metacello new
-  githubUser: 'badetitou' project: 'Moose-REST-API' commitish: 'master' path: 'src';
+  githubUser: 'evref-bl' project: 'Moose-REST-API' commitish: 'master' path: 'src';
   baseline: 'MooseRestAPI';
   load
 ```
@@ -30,7 +30,7 @@ Metacello new
 ```st
 Metacello new
   baseline: 'MooseRestAPI';
-  repository: 'github://badetitou/Moose-REST-API:master/src';
+  repository: 'github://evref-bl/Moose-REST-API:master/src';
   load: #('Moose-GraphQL').
 ```
 
