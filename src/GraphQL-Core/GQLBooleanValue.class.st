@@ -1,0 +1,13 @@
+Class {
+	#name : 'GQLBooleanValue',
+	#superclass : 'GQLScalarValue',
+	#category : 'GraphQL-Core-AST',
+	#package : 'GraphQL-Core',
+	#tag : 'AST'
+}
+
+{ #category : 'printing' }
+GQLBooleanValue >> printGraphQLOn: aStream [
+
+	aStream print: value
+]

@@ -1,1 +1,1 @@
-Package { #name : #BaselineOfMooseRestAPI }
+Package { #name : 'BaselineOfMooseRestAPI' }
