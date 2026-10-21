@@ -55,10 +55,18 @@ MGRegistry >> allEntitiesType: aStringOrNil take: aTakeOrNil [
 
 { #category : 'properties' }
 MGRegistry >> complexPropertiesOf: anEntity [
+	"Entity-typed properties of anEntity, one per name, sorted by name; Object-typed properties holding a non-entity value are excluded (see #isScalarObjectProperty:of:)"
+
 	^ MGSafe
-		do: [ self sortedUniqueByName: ((self metadescriptionOf: anEntity) allComplexProperties select: [ :p |
-				MGSafe do: [ p type notNil and: [ p type isPrimitive not ] ] default: false ]) ]
-		default: #()
+		  do: [
+				  self sortedUniqueByName:
+					  ((self metadescriptionOf: anEntity) allComplexProperties
+						   select: [ :p |
+								   (MGSafe
+									    do: [ p type notNil and: [ p type isPrimitive not ] ]
+									    default: false) and: [
+									   (self isScalarObjectProperty: p of: anEntity) not ] ]) ]
+		  default: #(  )
 ]
 
 { #category : 'entities' }
@@ -273,6 +281,18 @@ MGRegistry >> isNavigable: anMGRelation [
 		  default: false
 ]
 
+{ #category : 'private' }
+MGRegistry >> isScalarObjectProperty: anFM3Property of: anEntity [
+	"True when anFM3Property is typed Object (FM3Object) and its value for anEntity is set but holds no entity (e.g. a DateAndTime): it is then a property, not a relation"
+
+	^ MGSafe
+		  do: [
+				  (anFM3Property type isKindOf: FM3Object) and: [
+						  (anEntity mmGetProperty: anFM3Property) in: [ :value |
+							  value notNil and: [ (MGSafe entitiesIn: value) isEmpty ] ] ] ]
+		  default: false
+]
+
 { #category : 'entities' }
 MGRegistry >> knownModelOf: anEntity [
 	"The model of anEntity when it belongs to the installed models snapshot, nil otherwise"
@@ -400,9 +420,16 @@ MGRegistry >> parseInteger: aString [
 
 { #category : 'properties' }
 MGRegistry >> primitivePropertiesOf: anEntity [
+	"Primitive properties of anEntity, plus its Object-typed properties holding a non-entity value (see #isScalarObjectProperty:of:), one per name, sorted by name"
+
 	^ MGSafe
-		do: [ self sortedUniqueByName: (self metadescriptionOf: anEntity) allPrimitiveProperties ]
-		default: #()
+		  do: [
+				  | description |
+				  description := self metadescriptionOf: anEntity.
+				  self sortedUniqueByName: description allPrimitiveProperties
+					  , (description allComplexProperties select: [ :p |
+							   self isScalarObjectProperty: p of: anEntity ]) ]
+		  default: #(  )
 ]
 
 { #category : 'properties' }

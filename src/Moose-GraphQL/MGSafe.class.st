@@ -16,13 +16,14 @@ Class {
 
 { #category : 'printing' }
 MGSafe class >> basicPrintValue: anObject [
-	"Answer a String describing anObject (nil for nil). May raise; use #printValue:."
+	"Answer a String describing anObject (nil for nil); dates, times and durations in ISO 8601 (see MGTemporalFormat). May raise; use #printValue:."
 
 	anObject ifNil: [ ^ nil ].
 	(anObject isString or: [ anObject isSymbol ]) ifTrue: [
 		^ anObject asString ].
 	(anObject isNumber or: [ anObject == true or: [ anObject == false ] ])
 		ifTrue: [ ^ anObject printString ].
+	(MGTemporalFormat print: anObject) ifNotNil: [ :iso | ^ iso ].
 	(self isCollectionLike: anObject) ifTrue: [
 		^ self printCollection: anObject ].
 	(self isEntity: anObject) ifTrue: [ ^ self nameOf: anObject ].
@@ -101,7 +102,7 @@ MGSafe class >> maxPrintSize [
 
 { #category : 'printing' }
 MGSafe class >> nameOf: anObject [
-	"Answer a short String naming anObject: mooseName for entities, printString otherwise (never raises)."
+	"Answer a short String naming anObject: mooseName for entities, ISO 8601 for dates, times and durations (see MGTemporalFormat), printString otherwise (never raises)."
 
 	^ [
 		  (self isEntity: anObject)
@@ -109,7 +110,8 @@ MGSafe class >> nameOf: anObject [
 					  anObject mooseName
 						  ifNil: [ anObject printString ]
 						  ifNotNil: [ :n | n asString ] ]
-			  ifFalse: [ anObject printString ] ]
+			  ifFalse: [
+			  (MGTemporalFormat print: anObject) ifNil: [ anObject printString ] ] ]
 		  on: Error
 		  do: [ :e |
 				  e return: ([ anObject class name , '?' ]

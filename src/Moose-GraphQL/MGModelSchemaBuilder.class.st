@@ -27,7 +27,8 @@ Class {
 		'concreteClasses',
 		'concepts',
 		'targets',
-		'builder'
+		'builder',
+		'objectKinds'
 	],
 	#category : 'Moose-GraphQL-Schema',
 	#package : 'Moose-GraphQL',
@@ -41,6 +42,32 @@ MGModelSchemaBuilder class >> buildFor: aMooseModel [
 	^ (self on: aMooseModel) build
 ]
 
+{ #category : 'scalars' }
+MGModelSchemaBuilder class >> coerceTemporal: aValue as: aScalarName [
+	"Input value of the temporal scalar named aScalarName: aValue when it already is of that kind, the parsed Pharo value when it is a valid ISO 8601 String, nil when not acceptable (never raises)"
+
+	^ MGSafe
+		  do: [
+				  (MGTemporalFormat scalarNameOf: aValue) = aScalarName
+					  ifTrue: [ aValue ]
+					  ifFalse: [ MGTemporalFormat parse: aValue as: aScalarName ] ]
+		  default: nil
+]
+
+{ #category : 'object properties' }
+MGModelSchemaBuilder class >> objectSampleSize [
+	"Number of non-nil values of an Object-typed property sampled to infer its GraphQL type"
+
+	^ 200
+]
+
+{ #category : 'object properties' }
+MGModelSchemaBuilder class >> objectScanLimit [
+	"Maximum number of instances read to infer the GraphQL type of an Object-typed property"
+
+	^ 10000
+]
+
 { #category : 'instance creation' }
 MGModelSchemaBuilder class >> on: aMooseModel [
 
@@ -52,6 +79,7 @@ MGModelSchemaBuilder class >> reservedTypeNames [
 	"Names that a concept type may not take (besides names starting with __)"
 
 	^ #( 'Query' 'String' 'Int' 'Float' 'Boolean' 'ID' 'Number' )
+	  , MGTemporalFormat temporalScalarNames
 ]
 
 { #category : 'scalars' }
@@ -66,6 +94,31 @@ MGModelSchemaBuilder class >> serializeNumber: aValue [
 					  aValue isNumber ifTrue: [
 						  aValue asFloat in: [ :f | f isFinite ifTrue: [ f ] ] ] ] ]
 		  default: nil
+]
+
+{ #category : 'scalars' }
+MGModelSchemaBuilder class >> serializeTemporal: aValue as: aScalarName [
+	"Output value of the temporal scalar named aScalarName: the ISO 8601 String of aValue when it is of that kind, aValue itself when it is a String valid for that scalar, nil otherwise (never raises)"
+
+	^ MGSafe
+		  do: [
+				  (MGTemporalFormat scalarNameOf: aValue) = aScalarName
+					  ifTrue: [ MGTemporalFormat print: aValue ]
+					  ifFalse: [
+							  (aValue isString and: [
+								   (MGTemporalFormat parse: aValue as: aScalarName) notNil ])
+								  ifTrue: [ aValue asString ] ] ]
+		  default: nil
+]
+
+{ #category : 'scalars' }
+MGModelSchemaBuilder class >> temporalScalarNameForTypeNamed: aTypeName [
+	"Temporal scalar standing for an explicitly typed FM3 property: Date, Time, DateTime (for DateAndTime, DateTime and Timestamp) or Duration; nil for any other type name"
+
+	(#( 'DateAndTime' 'DateTime' 'Timestamp' ) includes: aTypeName)
+		ifTrue: [ ^ 'DateTime' ].
+	^ (#( 'Date' 'Time' 'Duration' ) includes: aTypeName) ifTrue: [
+		  aTypeName asString ]
 ]
 
 { #category : 'concepts' }
@@ -134,6 +187,7 @@ MGModelSchemaBuilder >> build [
 	builder := GQLSchemaBuilder new.
 	self
 		defineNumberScalar;
+		defineTemporalScalars;
 		defineQuery;
 		defineConceptTypes.
 	builder query: 'Query'.
@@ -193,13 +247,18 @@ MGModelSchemaBuilder >> converterFor: aScalarName [
 	"A block converting a raw property value into a value of aScalarName (nil when not convertible)"
 
 	aScalarName = 'Boolean' ifTrue: [
-		^ [ :value | (value == true or: [ value == false ]) ifTrue: [ value ] ] ].
+		^ [ :value |
+		  (value == true or: [ value == false ]) ifTrue: [ value ] ] ].
 	aScalarName = 'Number' ifTrue: [
 		^ [ :value | value isNumber ifTrue: [ value ] ] ].
+	(MGTemporalFormat temporalScalarNames includes: aScalarName) ifTrue: [
+			^ [ :value |
+			  (MGTemporalFormat scalarNameOf: value) = aScalarName ifTrue: [
+				  value ] ] ].
 	^ [ :value |
-	  value isString
-		  ifTrue: [ value asString ]
-		  ifFalse: [ MGSafe printValue: value ] ]
+		  value isString
+			  ifTrue: [ value asString ]
+			  ifFalse: [ MGSafe printValue: value ] ]
 ]
 
 { #category : 'building' }
@@ -219,10 +278,11 @@ MGModelSchemaBuilder >> defineFieldsOf: aConcept on: anObjectTypeBuilder [
 	self defineIdentityFieldsOn: anObjectTypeBuilder.
 	(self primitivePropertiesOf: aConcept) do: [ :property |
 			(self fieldNameFor: property among: used) ifNotNil: [ :name |
-				self
-					definePrimitiveField: name
-					for: property
-					on: anObjectTypeBuilder ] ].
+					self
+						definePrimitiveField: name
+						for: property
+						in: aConcept
+						on: anObjectTypeBuilder ] ].
 	(self exposedRelationPropertiesOf: aConcept) do: [ :property |
 			(self fieldNameFor: property among: used) ifNotNil: [ :name |
 				self
@@ -272,25 +332,48 @@ MGModelSchemaBuilder >> defineNumberScalar [
 ]
 
 { #category : 'building' }
+MGModelSchemaBuilder >> definePrimitiveField: aName for: anFM3Property in: aConcept on: anObjectTypeBuilder [
+	"Scalar field aName of the type of aConcept exposing anFM3Property (see #scalarNameFor:in:)"
+
+	self
+		definePrimitiveField: aName
+		for: anFM3Property
+		scalar: (self scalarNameFor: anFM3Property in: aConcept)
+		on: anObjectTypeBuilder
+]
+
+{ #category : 'building' }
 MGModelSchemaBuilder >> definePrimitiveField: aName for: anFM3Property on: anObjectTypeBuilder [
-	| scalar converter |
-	scalar := self scalarNameFor: anFM3Property.
-	converter := self converterFor: scalar.
+	"Scalar field aName exposing anFM3Property, its scalar derived from the type name only (see #scalarNameFor:); prefer #definePrimitiveField:for:in:on: which also infers Object-typed properties"
+
+	self
+		definePrimitiveField: aName
+		for: anFM3Property
+		scalar: (self scalarNameFor: anFM3Property)
+		on: anObjectTypeBuilder
+]
+
+{ #category : 'building' }
+MGModelSchemaBuilder >> definePrimitiveField: aName for: anFM3Property scalar: aScalarName on: anObjectTypeBuilder [
+	"Field aName of scalar type aScalarName (a list of it when anFM3Property is multivalued) exposing anFM3Property"
+
+	| converter |
+	converter := self converterFor: aScalarName.
 	(self isMultivalued: anFM3Property)
 		ifTrue: [
-			anObjectTypeBuilder
-				field: aName
-				type: '[' , scalar , ']'
-				description: (self descriptionOf: anFM3Property)
-				resolve: [ :entity :args :context |
-					self valuesOf: anFM3Property in: entity converter: converter ] ]
+				anObjectTypeBuilder
+					field: aName
+					type: '[' , aScalarName , ']'
+					description: (self descriptionOf: anFM3Property)
+					resolve: [ :entity :args :context |
+						self valuesOf: anFM3Property in: entity converter: converter ] ]
 		ifFalse: [
-			anObjectTypeBuilder
-				field: aName
-				type: scalar
-				description: (self descriptionOf: anFM3Property)
-				resolve: [ :entity :args :context |
-					self valueOf: anFM3Property in: entity converter: converter ] ]
+				anObjectTypeBuilder
+					field: aName
+					type: aScalarName
+					description: (self descriptionOf: anFM3Property)
+					resolve: [ :entity :args :context |
+						self valueOf: anFM3Property in: entity converter: converter ] ]
 ]
 
 { #category : 'building' }
@@ -353,6 +436,45 @@ MGModelSchemaBuilder >> defineRootFieldsOf: aConcept on: anObjectTypeBuilder [
 			(self registryFrom: context)
 				entityAt: (MGSchema arg: 'id' in: args)
 				ofAnyOf: aConcept conformingClasses ]
+]
+
+{ #category : 'building' }
+MGModelSchemaBuilder >> defineTemporalScalar: aName description: aDescription [
+	"Temporal scalar aName (see MGTemporalFormat): serialized as an ISO 8601 String, input accepted as an ISO 8601 String"
+
+	| type |
+	type := GQLScalarType
+		        name: aName
+		        description: aDescription
+		        serialize: [ :value |
+		        self class serializeTemporal: value as: aName ]
+		        coerce: [ :value | value ].
+	type coerceBlock: [ :value |
+			(self class coerceTemporal: value as: aName) ifNil: [
+				type coercionError: value ] ].
+	builder scalar: type
+]
+
+{ #category : 'building' }
+MGModelSchemaBuilder >> defineTemporalScalars [
+	"Date, Time, DateTime and Duration scalars used for temporal properties (see MGTemporalFormat)"
+
+	self
+		defineTemporalScalar: 'Date'
+		description:
+		'A calendar date in ISO 8601 / RFC 3339 full-date form: YYYY-MM-DD (e.g. 2017-07-04).'.
+	self
+		defineTemporalScalar: 'Time'
+		description:
+		'A time of day in ISO 8601 / RFC 3339 partial-time form, 24h: hh:mm:ss with an optional fraction of at most 3 digits (e.g. 04:05:06 or 16:05:06.25). Input also accepts hh:mm and longer fractions.'.
+	self
+		defineTemporalScalar: 'DateTime'
+		description:
+		'A date and time in ISO 8601 / RFC 3339 date-time form keeping its UTC offset: YYYY-MM-DDThh:mm:ss[.fff]±hh:mm (e.g. 2017-07-04T04:05:06+00:00). Input also accepts a space or t separator, the Z/z, ±hh:mm and ±hhmm offsets, and no offset meaning UTC.'.
+	self
+		defineTemporalScalar: 'Duration'
+		description:
+		'A duration in ISO 8601 form using days, hours, minutes and seconds, optionally negative (e.g. PT0S, PT2M5S, P1DT2H3M4.5S, -PT5S). Input also accepts weeks (W); years and months are rejected.'
 ]
 
 { #category : 'resolving' }
@@ -425,6 +547,28 @@ MGModelSchemaBuilder >> graphQLNameFrom: aString [
 	^ name
 ]
 
+{ #category : 'object properties' }
+MGModelSchemaBuilder >> inferObjectScalarNameOf: anFM3Property in: aConcept [
+	"Scalar exposing the Object-typed anFM3Property in aConcept, inferred from a sample of its values (see #objectValueKindsOf:in:):
+	no value or only entities -> nil (the property stays a relation);
+	only Dates, Times, DateAndTimes or Durations -> Date, Time, DateTime or Duration;
+	only Strings, Booleans or Numbers -> String, Boolean or Number;
+	anything else, including entities mixed with other values -> String.
+	Derived properties are not sampled (they may be expensive) and stay relations."
+
+	| kinds |
+	(MGSafe do: [ anFM3Property isDerived == true ] default: true)
+		ifTrue: [ ^ nil ].
+	kinds := MGSafe
+		         do: [ self objectValueKindsOf: anFM3Property in: aConcept ]
+		         default: Set new.
+	kinds ifEmpty: [ ^ nil ].
+	kinds size = 1 ifFalse: [ ^ 'String' ].
+	kinds anyOne = #entity ifTrue: [ ^ nil ].
+	kinds anyOne = #other ifTrue: [ ^ 'String' ].
+	^ kinds anyOne
+]
+
 { #category : 'concepts' }
 MGModelSchemaBuilder >> isClass: anFM3Class conformingTo: anFM3Type [
 	"True when anFM3Class is anFM3Type, inherits from it, or (directly or by inheritance) uses it as a trait.
@@ -441,6 +585,20 @@ MGModelSchemaBuilder >> isClass: anFM3Class conformingTo: anFM3Type [
 MGModelSchemaBuilder >> isConceptClass: anFM3Class [
 	^ MGSafe
 		  do: [ anFM3Class isBuiltIn not and: [ anFM3Class isPrimitive not ] ]
+		  default: false
+]
+
+{ #category : 'concepts' }
+MGModelSchemaBuilder >> isExplicitTemporalProperty: anFM3Property [
+	"True when anFM3Property is explicitly typed Date, DateAndTime, DateTime, Timestamp, Time or Duration and no concrete class of the model conforms to that type (so it holds Pharo temporal values, not entities)"
+
+	^ MGSafe
+		  do: [
+				  (self isObjectProperty: anFM3Property) not and: [
+						  (self class temporalScalarNameForTypeNamed:
+							   anFM3Property type name asString) notNil and: [
+							  (self concreteClassesConformingTo: anFM3Property type)
+								  isEmpty ] ] ]
 		  default: false
 ]
 
@@ -466,10 +624,24 @@ MGModelSchemaBuilder >> isMultivalued: anFM3Property [
 	^ MGSafe do: [ anFM3Property isMultivalued == true ] default: false
 ]
 
+{ #category : 'object properties' }
+MGModelSchemaBuilder >> isObjectProperty: anFM3Property [
+	"True when anFM3Property is typed Object (FM3Object), so its values may be entities or plain Pharo objects"
+
+	^ MGSafe
+		  do: [ anFM3Property type isKindOf: FM3Object ]
+		  default: false
+]
+
 { #category : 'concepts' }
 MGModelSchemaBuilder >> isRelationProperty: anFM3Property [
+	"True when anFM3Property is typed by a non-primitive FM3 type, except explicit temporal types (see #isExplicitTemporalProperty:)"
+
 	^ MGSafe
-		  do: [ anFM3Property type notNil and: [ anFM3Property type isPrimitive not ] ]
+		  do: [
+				  anFM3Property type notNil and: [
+						  anFM3Property type isPrimitive not and: [
+							  (self isExplicitTemporalProperty: anFM3Property) not ] ] ]
 		  default: false
 ]
 
@@ -477,6 +649,14 @@ MGModelSchemaBuilder >> isRelationProperty: anFM3Property [
 MGModelSchemaBuilder >> isReservedTypeName: aString [
 	^ (self class reservedTypeNames includes: aString) or: [
 		  aString beginsWith: '__' ]
+]
+
+{ #category : 'object properties' }
+MGModelSchemaBuilder >> isScalarObjectProperty: anFM3Property in: aConcept [
+	"True when anFM3Property is typed Object and its sampled values in aConcept are not only entities (see #inferObjectScalarNameOf:in:), so it is exposed as a scalar field instead of a relation"
+
+	^ (self isObjectProperty: anFM3Property) and: [
+		  (self objectScalarNameOf: anFM3Property in: aConcept) notNil ]
 ]
 
 { #category : 'accessing' }
@@ -494,6 +674,73 @@ MGModelSchemaBuilder >> newTargetConceptsOf: aConcept [
 					  target := self targetTypeFor: property type.
 					  (concepts includesKey: target) ifFalse: [
 						  stream nextPut: (self addHelperConceptFor: target) ] ] ]
+]
+
+{ #category : 'object properties' }
+MGModelSchemaBuilder >> objectKindOf: aValue [
+	"Kind of a value of an Object-typed property: #entity for Moose entities, the temporal scalar name for dates, times and durations (see MGTemporalFormat), String, Boolean or Number for those values, #other otherwise (collections included)"
+
+	(MGSafe isEntity: aValue) ifTrue: [ ^ #entity ].
+	(MGTemporalFormat scalarNameOf: aValue) ifNotNil: [ :scalarName |
+		^ scalarName ].
+	^ MGSafe
+		  do: [
+				  aValue isString
+					  ifTrue: [ 'String' ]
+					  ifFalse: [
+							  (aValue == true or: [ aValue == false ])
+								  ifTrue: [ 'Boolean' ]
+								  ifFalse: [
+										  aValue isNumber
+											  ifTrue: [ 'Number' ]
+											  ifFalse: [ #other ] ] ] ]
+		  default: #other
+]
+
+{ #category : 'object properties' }
+MGModelSchemaBuilder >> objectScalarNameOf: anFM3Property in: aConcept [
+	"Scalar inferred for the Object-typed anFM3Property in aConcept, nil when it stays a relation; computed once per concept and property (see #inferObjectScalarNameOf:in:)"
+
+	^ objectKinds
+		  at: aConcept -> anFM3Property
+		  ifAbsentPut: [
+		  self inferObjectScalarNameOf: anFM3Property in: aConcept ]
+]
+
+{ #category : 'object properties' }
+MGModelSchemaBuilder >> objectValueKindsOf: anFM3Property in: aConcept [
+	"Kinds (see #objectKindOf:) of the non-nil values of anFM3Property over the instances of the classes conforming to aConcept.
+	Sampling stops after #objectSampleSize values, #objectScanLimit instances, or as soon as the kinds are decisive (mixed or other)"
+
+	| kinds sampled scanned |
+	kinds := Set new.
+	sampled := 0.
+	scanned := 0.
+	aConcept conformingClasses do: [ :each |
+			(registry instancesOf: each model: model) do: [ :entity |
+					(self objectValuesOf: anFM3Property in: entity) do: [ :value |
+							kinds add: (self objectKindOf: value).
+							sampled := sampled + 1 ].
+					scanned := scanned + 1.
+					(sampled >= self class objectSampleSize or: [
+							 scanned >= self class objectScanLimit or: [
+								 kinds size > 1 or: [ kinds includes: #other ] ] ]) ifTrue: [
+						^ kinds ] ] ].
+	^ kinds
+]
+
+{ #category : 'object properties' }
+MGModelSchemaBuilder >> objectValuesOf: anFM3Property in: anEntity [
+	"Non-nil values of anFM3Property for anEntity: the elements (at most MGSchema maxTake) of a multivalued property, the value itself otherwise (a collection held by a single-valued property is one value)"
+
+	| value values |
+	value := (self rawValueOf: anFM3Property in: anEntity) ifNil: [
+		         ^ #(  ) ].
+	values := ((self isMultivalued: anFM3Property) and: [
+		           MGSafe isCollectionLike: value ])
+		          ifTrue: [ MGSafe take: MGSchema maxTake from: value ]
+		          ifFalse: [ { value } ].
+	^ values reject: [ :each | each isNil ]
 ]
 
 { #category : 'naming' }
@@ -520,10 +767,16 @@ MGModelSchemaBuilder >> preferredTypeNameOf: aConcept among: conceptsByShortName
 
 { #category : 'concepts' }
 MGModelSchemaBuilder >> primitivePropertiesOf: aConcept [
-	"Primitive properties of the concept FM3 type, one per name, sorted by name"
+	"Primitive properties of the concept FM3 type, one per name, sorted by name.
+	Also includes explicit temporal properties (see #isExplicitTemporalProperty:) and Object-typed properties holding scalar values in aConcept (see #isScalarObjectProperty:in:)"
 
 	^ MGSafe
-		  do: [ registry sortedUniqueByName: aConcept fm3Type allPrimitiveProperties ]
+		  do: [
+				  registry sortedUniqueByName:
+					  aConcept fm3Type allPrimitiveProperties
+					  , (aConcept fm3Type allComplexProperties select: [ :each |
+								   (self isExplicitTemporalProperty: each) or: [
+									   self isScalarObjectProperty: each in: aConcept ] ]) ]
 		  default: #(  )
 ]
 
@@ -545,13 +798,15 @@ MGModelSchemaBuilder >> registryFrom: aContext [
 
 { #category : 'concepts' }
 MGModelSchemaBuilder >> relationPropertiesOf: aConcept [
-	"Entity-typed properties of the concept FM3 type, one per name, sorted by name"
+	"Entity-typed properties of the concept FM3 type, one per name, sorted by name.
+	Object-typed properties holding scalar values in aConcept are excluded (see #isScalarObjectProperty:in:)"
 
 	^ MGSafe
 		  do: [
-			  registry sortedUniqueByName:
-				  (aConcept fm3Type allComplexProperties select: [ :each |
-					   self isRelationProperty: each ]) ]
+				  registry sortedUniqueByName:
+					  (aConcept fm3Type allComplexProperties select: [ :each |
+							   (self isRelationProperty: each) and: [
+								   (self isScalarObjectProperty: each in: aConcept) not ] ]) ]
 		  default: #(  )
 ]
 
@@ -564,22 +819,37 @@ MGModelSchemaBuilder >> rootConcepts [
 
 { #category : 'scalars' }
 MGModelSchemaBuilder >> scalarNameFor: anFM3Property [
-	"String, Boolean and Number map to themselves, any other primitive type to String"
+	"Scalar of anFM3Property from its type name: String, Boolean and Number map to themselves, Date to Date, Time to Time, DateAndTime, DateTime and Timestamp to DateTime, Duration to Duration, any other type (Object included) to String"
 
 	| typeName |
-	typeName := MGSafe do: [ anFM3Property type name asString ] default: ''.
-	^ (#( 'String' 'Boolean' 'Number' ) includes: typeName)
-		  ifTrue: [ typeName ]
-		  ifFalse: [ 'String' ]
+	typeName := MGSafe
+		            do: [ anFM3Property type name asString ]
+		            default: ''.
+	(#( 'String' 'Boolean' 'Number' ) includes: typeName) ifTrue: [
+		^ typeName ].
+	^ (self class temporalScalarNameForTypeNamed: typeName) ifNil: [
+		  'String' ]
+]
+
+{ #category : 'scalars' }
+MGModelSchemaBuilder >> scalarNameFor: anFM3Property in: aConcept [
+	"Scalar of anFM3Property in aConcept: inferred from the values for Object-typed properties (see #inferObjectScalarNameOf:in:), from the type name otherwise (see #scalarNameFor:)"
+
+	(self isObjectProperty: anFM3Property) ifFalse: [
+		^ self scalarNameFor: anFM3Property ].
+	^ (self objectScalarNameOf: anFM3Property in: aConcept) ifNil: [
+		  'String' ]
 ]
 
 { #category : 'initialization' }
 MGModelSchemaBuilder >> setModel: aMooseModel [
+
 	model := aMooseModel.
 	registry := MGRegistry forModel: aMooseModel.
 	concreteClasses := #(  ).
 	concepts := IdentityDictionary new.
-	targets := IdentityDictionary new
+	targets := IdentityDictionary new.
+	objectKinds := Dictionary new
 ]
 
 { #category : 'concepts' }
