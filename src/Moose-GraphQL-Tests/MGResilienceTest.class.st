@@ -56,6 +56,83 @@ MGResilienceTest >> testBrokenModelInRegistry [
 ]
 
 { #category : 'tests' }
+MGResilienceTest >> testContainmentOnBrokenEntities [
+	"Containment and supertype protocol on entities with nil or raising metadescription never raise: answers nil / empty / 0 / true"
+
+	| broken |
+	broken := {
+		(MGBrokenEntity new raising: false; yourself).
+		(MGBrokenEntity new raising: true; yourself) }.
+	model addAll: broken.
+	broken do: [ :b |
+		self
+			shouldnt: [
+				self assert: (self registry containersOf: b) isEmpty.
+				self assert: (self registry containerOf: b) isNil.
+				self assert: (self registry childrenOf: b take: nil) isEmpty.
+				self assert: (self registry childrenCountOf: b) equals: 0.
+				self assert: (self registry ancestorsOf: b take: nil) isEmpty.
+				self assert: (self registry isRootEntity: b).
+				self assert: (self registry supertypeNamesOf: b) isEmpty ]
+			raise: Error ]
+]
+
+{ #category : 'tests' }
+MGResilienceTest >> testContainmentOnBrokenModel [
+	"Root entities of a model whose #entities raises are empty; the healthy model is still served"
+
+	| broken reg |
+	broken := MGBrokenModel new
+		name: 'MGTestBroken';
+		yourself.
+	reg := MGRegistry new.
+	reg useModels: { broken. model }.
+	self
+		shouldnt: [
+			self assert: (reg rootEntitiesOf: broken take: nil) isEmpty.
+			self assert: (reg rootEntitiesTake: nil modelId: (reg idOfModel: broken)) isEmpty.
+			self
+				assert: (reg rootEntitiesTake: nil modelId: (reg idOfModel: model)) asArray
+				equals: { class1. class2 }.
+			self assert: ((reg rootEntitiesTake: nil modelId: nil) includes: class1) ]
+		raise: Error
+]
+
+{ #category : 'tests' }
+MGResilienceTest >> testContainmentQueryOnBrokenEntities [
+	"GraphQL containment fields on broken entities answer null / [] / 0 without GraphQL errors"
+
+	| broken response entity |
+	broken := {
+		(MGBrokenEntity new raising: false; yourself).
+		(MGBrokenEntity new raising: true; yourself) }.
+	model addAll: broken.
+	broken do: [ :b |
+		self
+			shouldnt: [
+				response := self
+					query: 'query($id: ID!) { entity(id: $id) { id container { id } containers { id } children { id } childrenCount ancestors { id } types } }'
+					variables: (Dictionary with: 'id' -> (self idOf: b)) ]
+			raise: Error.
+		self
+			deny: (response includesKey: 'errors')
+			description: [ (response at: 'errors' ifAbsent: [ nil ]) printString ].
+		entity := (response at: 'data') at: 'entity'.
+		self assert: (entity at: 'id') equals: (self idOf: b).
+		self assert: (entity at: 'container') isNil.
+		self assert: (entity at: 'containers') isEmpty.
+		self assert: (entity at: 'children') isEmpty.
+		self assert: (entity at: 'childrenCount') equals: 0.
+		self assert: (entity at: 'ancestors') isEmpty.
+		self assert: (entity at: 'types') isEmpty ].
+	self
+		shouldnt: [
+			response := self query: '{ rootEntities(modelId: "' , self modelId , '") { id } }' ]
+		raise: Error.
+	self deny: (response includesKey: 'errors')
+]
+
+{ #category : 'tests' }
 MGResilienceTest >> testEntitiesWithBrokenMetadescription [
 	"A non-Famix entity whose metadescription is nil, and one whose metadescription/name/mooseName raise, are added to the model:
 	every query still answers data and no exception escapes"

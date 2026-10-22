@@ -245,9 +245,9 @@ GQLIntrospection >> fieldType [
 
 { #category : 'resolving' }
 GQLIntrospection >> fieldsOf: aType includeDeprecated: aBoolean [
-	"Answer the introspectable fields of aType (nil unless it is an object type): meta fields (named __*) are hidden"
+	"Answer the introspectable fields of aType (nil unless it is an object or interface type): meta fields (named __*) are hidden"
 
-	aType isObject ifFalse: [ ^ nil ].
+	aType isComposite ifFalse: [ ^ nil ].
 	^ (aType fields values select: [ :each |
 			   (self class isIntrospectionName: each name) not and: [
 				   aBoolean or: [ each isDeprecated not ] ] ]) asArray
@@ -529,7 +529,7 @@ Depending on the kind of a type, certain fields describe information about that 
 					  field: 'possibleTypes'
 					  type: '[__Type!]'
 					  description: nil
-					  resolve: [ :t | nil ].
+					  resolve: [ :t | self possibleTypesOf: t ].
 				  f
 					  field: 'enumValues'
 					  type: '[__EnumValue!]'

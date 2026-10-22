@@ -34,6 +34,12 @@ MGRelation >> id [
 ]
 
 { #category : 'accessing' }
+MGRelation >> isChildrenProperty [
+	"True when the targets are contained by the owner (opposite of a container property)"
+	^ MGSafe do: [ property isChildrenProperty == true ] default: false
+]
+
+{ #category : 'accessing' }
 MGRelation >> isContainer [
 	^ MGSafe do: [ property isContainer == true ] default: false
 ]

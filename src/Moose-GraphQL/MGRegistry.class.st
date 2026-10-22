@@ -16,7 +16,10 @@ Class {
 		'models',
 		'entityIndexes',
 		'instancesCache',
-		'entityTypesCache'
+		'entityTypesCache',
+		'containerPropertiesCache',
+		'childrenPropertiesCache',
+		'supertypesCache'
 	],
 	#category : 'Moose-GraphQL-Core',
 	#package : 'Moose-GraphQL',
@@ -28,6 +31,18 @@ MGRegistry class >> forModel: aMooseModel [
 	"A registry whose model snapshot is only aMooseModel (used by the model-specific schema)"
 
 	^ self new useModels: { aMooseModel }
+]
+
+{ #category : 'private' }
+MGRegistry >> addSupertype: anFM3Type to: aCollection seen: aSet [
+	"Add anFM3Type (unless built-in) then, depth-first, its direct traits sorted by fullName"
+	| traits |
+	(anFM3Type isNil or: [ aSet includes: anFM3Type ]) ifTrue: [ ^ self ].
+	aSet add: anFM3Type.
+	(self isBuiltInType: anFM3Type) ifFalse: [ aCollection add: anFM3Type ].
+	traits := MGSafe do: [ anFM3Type traits asArray ] default: #().
+	((traits ifNil: [ #() ]) asSortedCollection: [ :a :b | (self fullNameOf: a) <= (self fullNameOf: b) ])
+		do: [ :each | self addSupertype: each to: aCollection seen: aSet ]
 ]
 
 { #category : 'entities' }
@@ -53,6 +68,74 @@ MGRegistry >> allEntitiesType: aStringOrNil take: aTakeOrNil [
 	^ self allEntitiesType: aStringOrNil limit: (MGSafe normalizeTake: aTakeOrNil)
 ]
 
+{ #category : 'supertypes' }
+MGRegistry >> allSupertypesOf: anFM3Class [
+	"Same as #withAllSupertypesOf: without anFM3Class itself"
+	^ (self withAllSupertypesOf: anFM3Class) reject: [ :each | each == anFM3Class ]
+]
+
+{ #category : 'containment' }
+MGRegistry >> ancestorsOf: anEntity take: aTakeOrNil [
+	"Containment chain of anEntity (following #containerOf:), nearest container first, at most aTakeOrNil; stops on cycles"
+	| limit seen result current |
+	limit := MGSafe normalizeTake: aTakeOrNil.
+	limit = 0 ifTrue: [ ^ #() ].
+	seen := IdentitySet with: anEntity.
+	result := OrderedCollection new.
+	current := self containerOf: anEntity.
+	[ current notNil and: [ result size < limit and: [ (seen includes: current) not ] ] ] whileTrue: [
+		seen add: current.
+		result add: current.
+		current := self containerOf: current ].
+	^ result asArray
+]
+
+{ #category : 'containment' }
+MGRegistry >> childrenCountOf: anEntity [
+	"Number of distinct entities directly contained by anEntity"
+	| seen |
+	seen := IdentitySet new.
+	[ (self childrenPropertiesOf: (self metadescriptionOf: anEntity)) do: [ :p |
+		self
+			entitiesIn: (MGSafe do: [ anEntity mmGetProperty: p ] default: nil)
+			do: [ :each | each == anEntity ifFalse: [ seen add: each ] ] ] ]
+		on: Error
+		do: [ :e | e return: nil ].
+	^ seen size
+]
+
+{ #category : 'containment' }
+MGRegistry >> childrenOf: anEntity take: aTakeOrNil [
+	"Distinct entities directly contained by anEntity (values of its children properties), at most aTakeOrNil; iteration stops early"
+	| limit seen result |
+	limit := MGSafe normalizeTake: aTakeOrNil.
+	limit = 0 ifTrue: [ ^ #() ].
+	seen := IdentitySet with: anEntity.
+	result := OrderedCollection new.
+	[ (self childrenPropertiesOf: (self metadescriptionOf: anEntity)) do: [ :p |
+		self
+			entitiesIn: (MGSafe do: [ anEntity mmGetProperty: p ] default: nil)
+			do: [ :each |
+				(seen includes: each) ifFalse: [
+					seen add: each.
+					result add: each.
+					result size >= limit ifTrue: [ ^ result asArray ] ] ] ] ]
+		on: Error
+		do: [ :e | e return: nil ].
+	^ result asArray
+]
+
+{ #category : 'containment' }
+MGRegistry >> childrenPropertiesOf: anFM3Class [
+	"FM3 properties of anFM3Class (traits included) whose values are contained by the owner (opposite of a container property), one per name, sorted by name"
+	anFM3Class ifNil: [ ^ #() ].
+	childrenPropertiesCache ifNil: [ childrenPropertiesCache := IdentityDictionary new ].
+	^ childrenPropertiesCache at: anFM3Class ifAbsentPut: [
+		MGSafe
+			do: [ self sortedUniqueByName: (anFM3Class allProperties select: [ :p | MGSafe do: [ p isChildrenProperty == true ] default: false ]) ]
+			default: #() ]
+]
+
 { #category : 'properties' }
 MGRegistry >> complexPropertiesOf: anEntity [
 	"Entity-typed properties of anEntity, one per name, sorted by name; Object-typed properties holding a non-entity value are excluded (see #isScalarObjectProperty:of:)"
@@ -67,6 +150,50 @@ MGRegistry >> complexPropertiesOf: anEntity [
 									    default: false) and: [
 									   (self isScalarObjectProperty: p of: anEntity) not ] ]) ]
 		  default: #(  )
+]
+
+{ #category : 'containment' }
+MGRegistry >> containerOf: anEntity [
+	"First direct container of anEntity, or nil"
+	^ (self containersOf: anEntity) ifEmpty: [ nil ] ifNotEmpty: [ :containers | containers first ]
+]
+
+{ #category : 'containment' }
+MGRegistry >> containerPropertiesOf: anFM3Class [
+	"FM3 properties of anFM3Class (traits included) whose value contains the owner, one per name, sorted by name"
+	anFM3Class ifNil: [ ^ #() ].
+	containerPropertiesCache ifNil: [ containerPropertiesCache := IdentityDictionary new ].
+	^ containerPropertiesCache at: anFM3Class ifAbsentPut: [
+		MGSafe
+			do: [ self sortedUniqueByName: (anFM3Class allProperties select: [ :p | MGSafe do: [ p isContainer == true ] default: false ]) ]
+			default: #() ]
+]
+
+{ #category : 'containment' }
+MGRegistry >> containersOf: anEntity [
+	"Distinct entities directly containing anEntity (values of its container properties), never anEntity itself"
+	| seen result |
+	seen := IdentitySet with: anEntity.
+	result := OrderedCollection new.
+	[ (self containerPropertiesOf: (self metadescriptionOf: anEntity)) do: [ :p |
+		self
+			entitiesIn: (MGSafe do: [ anEntity mmGetProperty: p ] default: nil)
+			do: [ :each |
+				(seen includes: each) ifFalse: [
+					seen add: each.
+					result add: each ] ] ] ]
+		on: Error
+		do: [ :e | e return: nil ].
+	^ result asArray
+]
+
+{ #category : 'private' }
+MGRegistry >> entitiesIn: anObject do: aBlock [
+	"Evaluate aBlock on each Moose entity found in anObject (single entity, collection or group); may raise"
+	anObject ifNil: [ ^ self ].
+	(MGSafe isEntity: anObject) ifTrue: [ ^ aBlock value: anObject ].
+	(MGSafe isCollectionLike: anObject) ifFalse: [ ^ self ].
+	anObject do: [ :each | (MGSafe isEntity: each) ifTrue: [ aBlock value: each ] ]
 ]
 
 { #category : 'entities' }
@@ -189,12 +316,18 @@ MGRegistry >> entityTypesOf: aMooseModel take: aTakeOrNil [
 
 { #category : 'meta classes' }
 MGRegistry >> fm3ClassNamed: aString in: aMooseModel [
-	"FM3Class of the model metamodel whose fullName (or name) is aString, or nil"
+	"FM3Class or FM3Trait of the model metamodel whose fullName (or name) is aString, or nil"
 	| classes |
 	classes := MGSafe do: [ aMooseModel metamodel classes asOrderedCollection ] default: [ OrderedCollection new ].
+	classes addAll: (MGSafe do: [ aMooseModel metamodel traits asArray ] default: [ #() ]).
 	classes addAll: (MGSafe do: [ (self instancesIndexOf: aMooseModel) keys ] default: [ #() ]).
 	^ (classes detect: [ :c | (MGSafe do: [ c fullName asString ] default: nil) = aString ] ifNone: [ nil ])
 		ifNil: [ classes detect: [ :c | (MGSafe do: [ c name asString ] default: nil) = aString ] ifNone: [ nil ] ]
+]
+
+{ #category : 'private' }
+MGRegistry >> fullNameOf: anFM3Element [
+	^ MGSafe do: [ anFM3Element fullName asString ] default: [ String new ]
 ]
 
 { #category : 'entities' }
@@ -268,6 +401,14 @@ MGRegistry >> instancesOfAll: someFM3Classes model: aMooseModel take: aTakeOrNil
 	^ result asArray
 ]
 
+{ #category : 'private' }
+MGRegistry >> isBuiltInType: anFM3Type [
+	"True for FM3 built-in types (Object, primitives) that are not part of the metamodel"
+	^ MGSafe
+		do: [ anFM3Type isBuiltIn == true or: [ (anFM3Type respondsTo: #isPrimitive) and: [ anFM3Type isPrimitive == true ] ] ]
+		default: false
+]
+
 { #category : 'properties' }
 MGRegistry >> isNavigable: anMGRelation [
 	"A relation is navigable for #relatedOf:take: when it is stored: either not derived, or one side of an opposite pair.
@@ -279,6 +420,12 @@ MGRegistry >> isNavigable: anMGRelation [
 				  anMGRelation isDerived not or: [
 					  anMGRelation property opposite notNil ] ]
 		  default: false
+]
+
+{ #category : 'containment' }
+MGRegistry >> isRootEntity: anEntity [
+	"True when anEntity has no container"
+	^ (self containersOf: anEntity) isEmpty
 ]
 
 { #category : 'private' }
@@ -489,6 +636,44 @@ MGRegistry >> relationsOf: anEntity [
 ]
 
 { #category : 'private' }
+MGRegistry >> rootEntitiesOf: aMooseModel limit: anInteger [
+	"At most anInteger entities of aMooseModel without container; iteration stops early"
+	| result |
+	(aMooseModel isNil or: [ anInteger <= 0 ]) ifTrue: [ ^ #() ].
+	result := OrderedCollection new.
+	[ (self entitiesOfModel: aMooseModel) do: [ :each |
+		((MGSafe isEntity: each) and: [ self isRootEntity: each ]) ifTrue: [
+			result add: each.
+			result size >= anInteger ifTrue: [ ^ result asArray ] ] ] ]
+		on: Error
+		do: [ :e | e return: nil ].
+	^ result asArray
+]
+
+{ #category : 'containment' }
+MGRegistry >> rootEntitiesOf: aMooseModel take: aTakeOrNil [
+	"At most aTakeOrNil (normalized) entities of aMooseModel without container"
+	^ self rootEntitiesOf: aMooseModel limit: (MGSafe normalizeTake: aTakeOrNil)
+]
+
+{ #category : 'containment' }
+MGRegistry >> rootEntitiesTake: aTakeOrNil modelId: aModelIdOrNil [
+	"Query.rootEntities: entities without container, restricted to one model when aModelIdOrNil is given (unknown model -> empty)"
+	| limit result |
+	limit := MGSafe normalizeTake: aTakeOrNil.
+	aModelIdOrNil ifNotNil: [
+		^ (self modelAt: aModelIdOrNil)
+			ifNil: [ #() ]
+			ifNotNil: [ :model | self rootEntitiesOf: model limit: limit ] ].
+	limit <= 0 ifTrue: [ ^ #() ].
+	result := OrderedCollection new.
+	self models do: [ :model |
+		result addAll: (self rootEntitiesOf: model limit: limit - result size).
+		result size >= limit ifTrue: [ ^ result asArray ] ].
+	^ result asArray
+]
+
+{ #category : 'private' }
 MGRegistry >> safeNameOf: anFM3Element [
 	^ MGSafe do: [ anFM3Element name asString ] default: ''
 ]
@@ -515,6 +700,18 @@ MGRegistry >> splitFeatureId: anId [
 	^ { entity. key allButFirst: slash }
 ]
 
+{ #category : 'supertypes' }
+MGRegistry >> supertypeNamesOf: anEntity [
+	"Short names of the meta-class of anEntity and all its supertypes, without duplicates"
+	| names |
+	names := OrderedCollection new.
+	(self withAllSupertypesOf: (self metadescriptionOf: anEntity)) do: [ :each |
+		| n |
+		n := self safeNameOf: each.
+		(n isEmpty or: [ names includes: n ]) ifFalse: [ names add: n ] ].
+	^ names asArray
+]
+
 { #category : 'entities' }
 MGRegistry >> typeOfEntity: anEntity [
 	"Name of the entity meta-class, or of its Smalltalk class"
@@ -529,4 +726,20 @@ MGRegistry >> typeOfEntity: anEntity [
 MGRegistry >> useModels: aCollection [
 	"Use aCollection instead of the MooseModel root snapshot (mostly for tests)"
 	models := aCollection asOrderedCollection
+]
+
+{ #category : 'supertypes' }
+MGRegistry >> withAllSupertypesOf: anFM3Class [
+	"anFM3Class, then each of its superclasses, each followed by its traits (depth-first, sorted by fullName); no duplicates, no built-in types"
+	anFM3Class ifNil: [ ^ #() ].
+	supertypesCache ifNil: [ supertypesCache := IdentityDictionary new ].
+	^ supertypesCache at: anFM3Class ifAbsentPut: [
+		| result seen current |
+		result := OrderedCollection new.
+		seen := IdentitySet new.
+		current := anFM3Class.
+		[ current notNil and: [ (seen includes: current) not ] ] whileTrue: [
+			self addSupertype: current to: result seen: seen.
+			current := MGSafe do: [ current superclass ] default: nil ].
+		result asArray ]
 ]

@@ -302,7 +302,7 @@ MGModelServerTest >> testGenericStartOnIsUnchanged [
 				 :f | f at: 'name' ]) asSet
 		equals:
 			#( 'models' 'model' 'entities' 'entity' 'metaClass' 'relation'
-			   'property' ) asSet.
+			   'property' 'rootEntities' ) asSet.
 	self assert: ((data at: 'entities') allSatisfy: [ :e |
 			 (e at: '__typename') = 'Entity' ]).
 	MGServer restart.
