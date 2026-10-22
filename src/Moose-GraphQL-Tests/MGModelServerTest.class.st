@@ -230,7 +230,7 @@ MGModelServerTest >> testFluidRootTypeAndQueryFields [
 	self
 		assert: (fields collect: [ :f | f at: 'name' ]) asSet
 		equals:
-			#( 'attributes' 'attribute' 'classes' 'class' 'methods' 'method' )
+			#( 'rootEntities' 'attributes' 'attribute' 'classes' 'class' 'methods' 'method' )
 				asSet.
 	classes := fields detect: [ :f | (f at: 'name') = 'classes' ].
 	self

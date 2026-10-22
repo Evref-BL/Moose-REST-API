@@ -28,7 +28,8 @@ Class {
 		'concepts',
 		'targets',
 		'builder',
-		'objectKinds'
+		'objectKinds',
+		'supertypeSets'
 	],
 	#category : 'Moose-GraphQL-Schema',
 	#package : 'Moose-GraphQL',
@@ -54,6 +55,13 @@ MGModelSchemaBuilder class >> coerceTemporal: aValue as: aScalarName [
 		  default: nil
 ]
 
+{ #category : 'naming' }
+MGModelSchemaBuilder class >> genericFieldNames [
+	"Names of the generic fields of every concept type, declared by the MooseEntity interface (see #defineGenericFieldsOn:)"
+
+	^ #( 'id' 'name' 'type' 'types' 'container' 'containers' 'children' 'childrenCount' 'ancestors' )
+]
+
 { #category : 'object properties' }
 MGModelSchemaBuilder class >> objectSampleSize [
 	"Number of non-nil values of an Object-typed property sampled to infer its GraphQL type"
@@ -75,10 +83,17 @@ MGModelSchemaBuilder class >> on: aMooseModel [
 ]
 
 { #category : 'naming' }
+MGModelSchemaBuilder class >> renamedGenericFieldNames [
+	"Generic field names that an FM3 property exposed as is would clash with: such a property is exposed with a trailing underscore (e.g. id_, type_). A property called name is not exposed, the generic name field answers it"
+
+	^ self genericFieldNames copyWithout: 'name'
+]
+
+{ #category : 'naming' }
 MGModelSchemaBuilder class >> reservedTypeNames [
 	"Names that a concept type may not take (besides names starting with __)"
 
-	^ #( 'Query' 'String' 'Int' 'Float' 'Boolean' 'ID' 'Number' )
+	^ #( 'Query' 'String' 'Int' 'Float' 'Boolean' 'ID' 'Number' 'MooseEntity' )
 	  , MGTemporalFormat temporalScalarNames
 ]
 
@@ -132,20 +147,19 @@ MGModelSchemaBuilder >> addHelperConceptFor: anFM3Type [
 
 { #category : 'concepts' }
 MGModelSchemaBuilder >> addRootConceptFor: anFM3Class [
-	"Register the root concept of anFM3Class, a concrete class having instances in the model"
+	"Register the root concept of anFM3Class, a concrete class having instances in the model. Its root fields answer the instances of exactly anFM3Class (not of its subclasses)"
 
 	^ concepts at: anFM3Class put: (MGConcept
 			   rootType: anFM3Class
-			   conformingClasses:
-			   (self concreteClassesConformingTo: anFM3Class))
+			   conformingClasses: { anFM3Class })
 ]
 
 { #category : 'naming' }
 MGModelSchemaBuilder >> assignRootFieldNames [
-	"Singular lowerFirst by-id fields first (e.g. method), then plural lowerFirst list fields (e.g. methods), all unique; root concepts only"
+	"Singular lowerFirst by-id fields first (e.g. method), then plural lowerFirst list fields (e.g. methods), all unique and distinct from rootEntities; root concepts only"
 
 	| used roots |
-	used := Set new.
+	used := Set with: 'rootEntities'.
 	roots := self rootConcepts.
 	roots do: [ :each |
 			each byIdFieldName: (self
@@ -188,8 +202,11 @@ MGModelSchemaBuilder >> build [
 	self
 		defineNumberScalar;
 		defineTemporalScalars;
+		defineMooseEntityInterface;
 		defineQuery;
 		defineConceptTypes.
+	builder typeResolver: [ :value :context |
+		self runtimeTypeNameOf: value in: context ].
 	builder query: 'Query'.
 	^ builder build
 ]
@@ -267,6 +284,7 @@ MGModelSchemaBuilder >> defineConceptTypes [
 		builder
 			object: each typeName
 			description: each description
+			implements: #( 'MooseEntity' )
 			fields: [ :object | self defineFieldsOf: each on: object ] ]
 ]
 
@@ -274,8 +292,8 @@ MGModelSchemaBuilder >> defineConceptTypes [
 MGModelSchemaBuilder >> defineFieldsOf: aConcept on: anObjectTypeBuilder [
 
 	| used |
-	used := Set withAll: #( 'id' 'name' 'type' ).
-	self defineIdentityFieldsOn: anObjectTypeBuilder.
+	used := Set withAll: self class genericFieldNames.
+	self defineGenericFieldsOn: anObjectTypeBuilder.
 	(self primitivePropertiesOf: aConcept) do: [ :property |
 			(self fieldNameFor: property among: used) ifNotNil: [ :name |
 					self
@@ -289,6 +307,58 @@ MGModelSchemaBuilder >> defineFieldsOf: aConcept on: anObjectTypeBuilder [
 					defineRelationField: name
 					for: property
 					on: anObjectTypeBuilder ] ]
+]
+
+{ #category : 'building' }
+MGModelSchemaBuilder >> defineGenericFieldsOn: anObjectTypeBuilder [
+	"Fields of the MooseEntity interface, shared by every concept type: identity (id, name, type), supertype names (types) and containment (container, containers, children, childrenCount, ancestors).
+	Entity results are restricted to the entities having a concept type (see #exposableEntity:)"
+
+	self defineIdentityFieldsOn: anObjectTypeBuilder.
+	anObjectTypeBuilder
+		field: 'types'
+		type: '[String!]!'
+		description: 'Names of the entity meta-class and of all its supertypes (superclasses and traits).'
+		resolve: [ :entity :args :context |
+			(self registryFrom: context) supertypeNamesOf: entity ].
+	anObjectTypeBuilder
+		field: 'container'
+		type: 'MooseEntity'
+		description: 'Direct container of the entity (the first one when it has several), or null.'
+		resolve: [ :entity :args :context |
+			(self exposable: ((self registryFrom: context) containersOf: entity))
+				ifEmpty: [ nil ]
+				ifNotEmpty: [ :containers | containers first ] ].
+	anObjectTypeBuilder
+		field: 'containers'
+		type: '[MooseEntity!]!'
+		description: 'All direct containers of the entity.'
+		resolve: [ :entity :args :context |
+			self exposable: ((self registryFrom: context) containersOf: entity) ].
+	anObjectTypeBuilder
+		field: 'children'
+		type: '[MooseEntity!]!'
+		description: 'Entities directly contained by this entity (at most take, default ' , MGSchema defaultTake printString , ').'
+		args: { ('take' -> 'Int') }
+		resolve: [ :entity :args :context |
+			self exposable: ((self registryFrom: context)
+					 childrenOf: entity
+					 take: (MGSchema arg: 'take' in: args)) ].
+	anObjectTypeBuilder
+		field: 'childrenCount'
+		type: 'Int'
+		description: 'Number of entities directly contained by this entity.'
+		resolve: [ :entity :args :context |
+			(self registryFrom: context) childrenCountOf: entity ].
+	anObjectTypeBuilder
+		field: 'ancestors'
+		type: '[MooseEntity!]!'
+		description: 'Containment chain of the entity, nearest container first (at most take, default ' , MGSchema defaultTake printString , ').'
+		args: { ('take' -> 'Int') }
+		resolve: [ :entity :args :context |
+			self exposable: ((self registryFrom: context)
+					 ancestorsOf: entity
+					 take: (MGSchema arg: 'take' in: args)) ]
 ]
 
 { #category : 'building' }
@@ -311,6 +381,17 @@ MGModelSchemaBuilder >> defineIdentityFieldsOn: anObjectTypeBuilder [
 		description: 'Name of the concrete meta-class of the entity (e.g. Method).'
 		resolve: [ :entity :args :context |
 			(self registryFrom: context) typeOfEntity: entity ]
+]
+
+{ #category : 'building' }
+MGModelSchemaBuilder >> defineMooseEntityInterface [
+	"The MooseEntity interface, implemented by every concept type (see #defineGenericFieldsOn:)"
+
+	builder
+		interface: 'MooseEntity'
+		description: 'Any entity of the Moose model ' , (registry modelNameOf: model) asString
+			, ': every concept type implements it with the identity, supertype names and containment fields.'
+		fields: [ :interface | self defineGenericFieldsOn: interface ]
 ]
 
 { #category : 'building' }
@@ -385,6 +466,15 @@ MGModelSchemaBuilder >> defineQuery [
 			'Entry points to explore the concepts of the Moose model '
 			, (registry modelNameOf: model) asString , '.'
 		fields: [ :object |
+				object
+					field: 'rootEntities'
+					type: '[MooseEntity!]!'
+					description: 'Entities of the model without container (at most take, default ' , MGSchema defaultTake printString , ').'
+					args: { ('take' -> 'Int') }
+					resolve: [ :source :args :context |
+						self exposable: ((self registryFrom: context)
+								 rootEntitiesOf: model
+								 take: (MGSchema arg: 'take' in: args)) ].
 				self rootConcepts do: [ :each |
 					self defineRootFieldsOf: each on: object ] ]
 ]
@@ -506,6 +596,21 @@ MGModelSchemaBuilder >> entitiesOf: anFM3Property in: anEntity [
 	^ MGSafe entitiesIn: (self rawValueOf: anFM3Property in: anEntity)
 ]
 
+{ #category : 'resolving' }
+MGModelSchemaBuilder >> exposable: aCollection [
+	"The entities of aCollection having a concept object type (see #exposableEntity:), as an Array"
+
+	^ (aCollection ifNil: [ #(  ) ]) asArray select: [ :each |
+		  self exposableEntity: each ]
+]
+
+{ #category : 'resolving' }
+MGModelSchemaBuilder >> exposableEntity: anEntity [
+	"True when anEntity has a concept object type (see #runtimeTypeNameOf:in:)"
+
+	^ (self runtimeTypeNameOf: anEntity in: registry) notNil
+]
+
 { #category : 'concepts' }
 MGModelSchemaBuilder >> exposedRelationPropertiesOf: aConcept [
 	"Relation properties of aConcept that may hold entities of the model, sorted by name"
@@ -516,11 +621,11 @@ MGModelSchemaBuilder >> exposedRelationPropertiesOf: aConcept [
 
 { #category : 'naming' }
 MGModelSchemaBuilder >> fieldNameFor: anFM3Property among: usedNames [
-	"GraphQL field name of anFM3Property (id is renamed id_), or nil when already used"
+	"GraphQL field name of anFM3Property (generic field names but name get a trailing underscore, see class>>#renamedGenericFieldNames), or nil when already used"
 
 	| name |
 	name := self graphQLNameFrom: (MGSafe do: [ anFM3Property name asString ] default: '').
-	name = 'id' ifTrue: [ name := 'id_' ].
+	(self class renamedGenericFieldNames includes: name) ifTrue: [ name := name , '_' ].
 	(usedNames includes: name) ifTrue: [ ^ nil ].
 	usedNames add: name.
 	^ name
@@ -548,8 +653,8 @@ MGModelSchemaBuilder >> graphQLNameFrom: aString [
 ]
 
 { #category : 'object properties' }
-MGModelSchemaBuilder >> inferObjectScalarNameOf: anFM3Property in: aConcept [
-	"Scalar exposing the Object-typed anFM3Property in aConcept, inferred from a sample of its values (see #objectValueKindsOf:in:):
+MGModelSchemaBuilder >> inferObjectScalarNameOf: anFM3Property [
+	"Scalar exposing the Object-typed anFM3Property, inferred from a sample of its values (see #objectValueKindsOf:):
 	no value or only entities -> nil (the property stays a relation);
 	only Dates, Times, DateAndTimes or Durations -> Date, Time, DateTime or Duration;
 	only Strings, Booleans or Numbers -> String, Boolean or Number;
@@ -560,7 +665,7 @@ MGModelSchemaBuilder >> inferObjectScalarNameOf: anFM3Property in: aConcept [
 	(MGSafe do: [ anFM3Property isDerived == true ] default: true)
 		ifTrue: [ ^ nil ].
 	kinds := MGSafe
-		         do: [ self objectValueKindsOf: anFM3Property in: aConcept ]
+		         do: [ self objectValueKindsOf: anFM3Property ]
 		         default: Set new.
 	kinds ifEmpty: [ ^ nil ].
 	kinds size = 1 ifFalse: [ ^ 'String' ].
@@ -569,15 +674,22 @@ MGModelSchemaBuilder >> inferObjectScalarNameOf: anFM3Property in: aConcept [
 	^ kinds anyOne
 ]
 
+{ #category : 'object properties' }
+MGModelSchemaBuilder >> inferObjectScalarNameOf: anFM3Property in: aConcept [
+	"The inference does not depend on aConcept: see #inferObjectScalarNameOf:"
+
+	^ self inferObjectScalarNameOf: anFM3Property
+]
+
 { #category : 'concepts' }
 MGModelSchemaBuilder >> isClass: anFM3Class conformingTo: anFM3Type [
-	"True when anFM3Class is anFM3Type, inherits from it, or (directly or by inheritance) uses it as a trait.
-	FM3Class>>#classUsers answers the class itself, FM3Trait>>#classUsers the classes using the trait."
+	"True when anFM3Type is the built-in Object type (every class conforms to it), or when it is not built-in and is anFM3Class or one of its supertypes (superclasses and traits, see #supertypeSetOf:)"
 
 	^ MGSafe
 		  do: [
-			  anFM3Type classUsers anySatisfy: [ :user |
-				  user == anFM3Class or: [ anFM3Class inheritsFrom: user ] ] ]
+			  (anFM3Type isKindOf: FM3Object) or: [
+				  (registry isBuiltInType: anFM3Type) not and: [
+					  (self supertypeSetOf: anFM3Class) includes: anFM3Type ] ] ]
 		  default: false
 ]
 
@@ -653,10 +765,10 @@ MGModelSchemaBuilder >> isReservedTypeName: aString [
 
 { #category : 'object properties' }
 MGModelSchemaBuilder >> isScalarObjectProperty: anFM3Property in: aConcept [
-	"True when anFM3Property is typed Object and its sampled values in aConcept are not only entities (see #inferObjectScalarNameOf:in:), so it is exposed as a scalar field instead of a relation"
+	"True when anFM3Property is typed Object and its sampled values are not only entities (see #inferObjectScalarNameOf:), so it is exposed as a scalar field instead of a relation"
 
 	^ (self isObjectProperty: anFM3Property) and: [
-		  (self objectScalarNameOf: anFM3Property in: aConcept) notNil ]
+		  (self objectScalarNameOf: anFM3Property) notNil ]
 ]
 
 { #category : 'accessing' }
@@ -698,25 +810,47 @@ MGModelSchemaBuilder >> objectKindOf: aValue [
 ]
 
 { #category : 'object properties' }
-MGModelSchemaBuilder >> objectScalarNameOf: anFM3Property in: aConcept [
-	"Scalar inferred for the Object-typed anFM3Property in aConcept, nil when it stays a relation; computed once per concept and property (see #inferObjectScalarNameOf:in:)"
+MGModelSchemaBuilder >> objectScalarNameOf: anFM3Property [
+	"Scalar inferred for the Object-typed anFM3Property, nil when it stays a relation; computed once per property (see #inferObjectScalarNameOf:)"
 
 	^ objectKinds
-		  at: aConcept -> anFM3Property
-		  ifAbsentPut: [
-		  self inferObjectScalarNameOf: anFM3Property in: aConcept ]
+		  at: anFM3Property
+		  ifAbsentPut: [ self inferObjectScalarNameOf: anFM3Property ]
+]
+
+{ #category : 'object properties' }
+MGModelSchemaBuilder >> objectScalarNameOf: anFM3Property in: aConcept [
+	"The inference does not depend on aConcept: see #objectScalarNameOf:"
+
+	^ self objectScalarNameOf: anFM3Property
+]
+
+{ #category : 'object properties' }
+MGModelSchemaBuilder >> objectValueKindsOf: anFM3Property [
+	"Kinds of the sampled values of anFM3Property over the instances of the classes declaring it (see #sampledClassesOf: and #objectValueKindsOf:inClasses:)"
+
+	^ self
+		  objectValueKindsOf: anFM3Property
+		  inClasses: (self sampledClassesOf: anFM3Property)
 ]
 
 { #category : 'object properties' }
 MGModelSchemaBuilder >> objectValueKindsOf: anFM3Property in: aConcept [
-	"Kinds (see #objectKindOf:) of the non-nil values of anFM3Property over the instances of the classes conforming to aConcept.
+	"The inference does not depend on aConcept: see #objectValueKindsOf:"
+
+	^ self objectValueKindsOf: anFM3Property
+]
+
+{ #category : 'object properties' }
+MGModelSchemaBuilder >> objectValueKindsOf: anFM3Property inClasses: someFM3Classes [
+	"Kinds (see #objectKindOf:) of the non-nil values of anFM3Property over the instances of someFM3Classes, iterated in order.
 	Sampling stops after #objectSampleSize values, #objectScanLimit instances, or as soon as the kinds are decisive (mixed or other)"
 
 	| kinds sampled scanned |
 	kinds := Set new.
 	sampled := 0.
 	scanned := 0.
-	aConcept conformingClasses do: [ :each |
+	someFM3Classes do: [ :each |
 			(registry instancesOf: each model: model) do: [ :entity |
 					(self objectValuesOf: anFM3Property in: entity) do: [ :value |
 							kinds add: (self objectKindOf: value).
@@ -810,11 +944,45 @@ MGModelSchemaBuilder >> relationPropertiesOf: aConcept [
 		  default: #(  )
 ]
 
+{ #category : 'resolving' }
+MGModelSchemaBuilder >> rootConceptOfEntity: anEntity in: aContext [
+	"The root concept whose FM3 type is the meta-class of anEntity, or nil"
+
+	| meta |
+	meta := (self registryFrom: aContext) metadescriptionOf: anEntity.
+	meta ifNil: [ ^ nil ].
+	^ (concepts at: meta ifAbsent: [ nil ]) ifNotNil: [ :concept |
+		  concept isRoot
+			  ifTrue: [ concept ]
+			  ifFalse: [ nil ] ]
+]
+
 { #category : 'accessing' }
 MGModelSchemaBuilder >> rootConcepts [
 	"The concepts having root fields on Query (concrete classes having instances), sorted by FM3 fullName"
 
 	^ self concepts select: [ :each | each isRoot ]
+]
+
+{ #category : 'resolving' }
+MGModelSchemaBuilder >> runtimeTypeNameOf: anEntity in: aContext [
+	"Name of the concept object type of anEntity (the root concept of its meta-class), nil when it has none. Type resolver of the MooseEntity interface"
+
+	^ MGSafe
+		  do: [
+			  (self rootConceptOfEntity: anEntity in: aContext) ifNotNil: [ :concept |
+				  concept typeName ] ]
+		  default: nil
+]
+
+{ #category : 'object properties' }
+MGModelSchemaBuilder >> sampledClassesOf: anFM3Property [
+	"Concrete classes of the model conforming to the class declaring anFM3Property, all of them when there is none; sorted by fullName"
+
+	| owner |
+	owner := MGSafe do: [ anFM3Property mmClass ] default: nil.
+	owner ifNil: [ ^ concreteClasses ].
+	^ (self concreteClassesConformingTo: owner) ifEmpty: [ concreteClasses ]
 ]
 
 { #category : 'scalars' }
@@ -833,12 +1001,11 @@ MGModelSchemaBuilder >> scalarNameFor: anFM3Property [
 
 { #category : 'scalars' }
 MGModelSchemaBuilder >> scalarNameFor: anFM3Property in: aConcept [
-	"Scalar of anFM3Property in aConcept: inferred from the values for Object-typed properties (see #inferObjectScalarNameOf:in:), from the type name otherwise (see #scalarNameFor:)"
+	"Scalar of anFM3Property: inferred from the values for Object-typed properties (see #inferObjectScalarNameOf:), from the type name otherwise (see #scalarNameFor:)"
 
 	(self isObjectProperty: anFM3Property) ifFalse: [
 		^ self scalarNameFor: anFM3Property ].
-	^ (self objectScalarNameOf: anFM3Property in: aConcept) ifNil: [
-		  'String' ]
+	^ (self objectScalarNameOf: anFM3Property) ifNil: [ 'String' ]
 ]
 
 { #category : 'initialization' }
@@ -849,7 +1016,17 @@ MGModelSchemaBuilder >> setModel: aMooseModel [
 	concreteClasses := #(  ).
 	concepts := IdentityDictionary new.
 	targets := IdentityDictionary new.
-	objectKinds := Dictionary new
+	supertypeSets := IdentityDictionary new.
+	objectKinds := IdentityDictionary new
+]
+
+{ #category : 'concepts' }
+MGModelSchemaBuilder >> supertypeSetOf: anFM3Class [
+	"anFM3Class and all its (non built-in) supertypes, superclasses and traits, cached per class"
+
+	supertypeSets ifNil: [ supertypeSets := IdentityDictionary new ].
+	^ supertypeSets at: anFM3Class ifAbsentPut: [
+		  (registry withAllSupertypesOf: anFM3Class) asIdentitySet ]
 ]
 
 { #category : 'concepts' }

@@ -36,51 +36,48 @@ MGModelSchemaTest >> annotationModelWithValues: aCollection [
 { #category : 'helpers' }
 MGModelSchemaTest >> assertSweepOf: aSchema model: aMooseModel [
 	"Query every entity of every root concept selecting all its scalar fields (built from introspection); assert no exception escapes, no GraphQL error is reported and every list has the expected size.
+	Only the concept list fields (whose named type is an OBJECT) are swept. rootEntities (typed with the MooseEntity interface) is checked separately: it answers every entity without container that has a concept.
 	Some properties raise internally (e.g. numberOfAbstractMethods on FamixTest1Class): they must resolve to null, not to an error"
 
-	| introspected rootFields query response data |
+	| introspected rootFields conceptNames query response data roots |
 	introspected := self introspectedSchemaOf: aSchema model: aMooseModel.
-	rootFields := ((introspected at: 'queryType') at: 'fields') select: [
-		              :f | (self kindsOf: (f at: 'type')) includes: 'LIST' ].
+	rootFields := ((introspected at: 'queryType') at: 'fields') select: [ :f |
+		              | kinds |
+		              kinds := self kindsOf: (f at: 'type').
+		              (kinds includes: 'LIST') and: [ (kinds at: kinds size - 1) = 'OBJECT' ] ].
 	self assert: rootFields notEmpty.
+	conceptNames := (((introspected at: 'types') select: [ :t | (t at: 'kind') = 'OBJECT' ]) collect: [ :t | t at: 'name' ]) asSet.
 	query := String streamContents: [ :s |
-			         s nextPutAll: '{ '.
-			         rootFields do: [ :f |
-					         | typeName scalars |
-					         typeName := (self kindsOf: (f at: 'type')) last.
-					         scalars := (self fieldsOfType: typeName in: introspected)
-						                    values select: [ :field |
-						                    (self kindsOf: (field at: 'type'))
-							                    includes: 'SCALAR' ].
-					         s
-						         nextPutAll: (f at: 'name');
-						         nextPutAll: '(take: 1000) { '.
-					         scalars
-						         do: [ :field | s nextPutAll: (field at: 'name') ]
-						         separatedBy: [ s space ].
-					         s nextPutAll: ' } ' ].
-			         s nextPutAll: '}' ].
-	self
-		shouldnt: [
-				response := self
-					            query: query
-					            variables: nil
-					            on: aSchema
-					            model: aMooseModel ]
-		raise: Error.
+		         s nextPutAll: '{ '.
+		         rootFields do: [ :f |
+			         | typeName scalars |
+			         typeName := (self kindsOf: (f at: 'type')) last.
+			         scalars := (self fieldsOfType: typeName in: introspected) values select: [ :field |
+				                    (self kindsOf: (field at: 'type')) includes: 'SCALAR' ].
+			         s nextPutAll: (f at: 'name'); nextPutAll: '(take: 1000) { '.
+			         scalars do: [ :field | s nextPutAll: (field at: 'name') ] separatedBy: [ s space ].
+			         s nextPutAll: ' } ' ].
+		         s nextPutAll: '}' ].
+	self shouldnt: [ response := self query: query variables: nil on: aSchema model: aMooseModel ] raise: Error.
 	data := self dataFrom: response.
 	rootFields do: [ :f |
-			| typeName |
-			typeName := (self kindsOf: (f at: 'type')) last.
-			self
-				assert: (data at: (f at: 'name')) size
-				equals: (aMooseModel entities count: [ :e |
-							 ([ e metadescription name asString ]
-								  on: Error
-								  do: [ :err | err return: nil ]) = typeName ]).
-			(data at: (f at: 'name')) do: [ :entity |
-					self assert: (entity at: 'type') equals: typeName.
-					self assert: (entity at: 'id') isString ] ].
+		| typeName |
+		typeName := (self kindsOf: (f at: 'type')) last.
+		self
+			assert: (data at: (f at: 'name')) size
+			equals: (aMooseModel entities count: [ :e |
+				 ([ e metadescription name asString ] on: Error do: [ :err | err return: nil ]) = typeName ]).
+		(data at: (f at: 'name')) do: [ :entity |
+			self assert: (entity at: 'type') equals: typeName.
+			self assert: (entity at: 'id') isString ] ].
+	"rootEntities: the entities without container that have a concept, typed with their concrete concept"
+	roots := (self dataFrom: (self query: '{ rootEntities(take: 1000) { __typename id type } }' variables: nil on: aSchema model: aMooseModel)) at: 'rootEntities'.
+	self assert: roots size equals: (aMooseModel entities count: [ :e |
+			 ([ e containers isEmpty ] on: Error do: [ :err | err return: false ]) and: [
+				 conceptNames includes: ([ e metadescription name asString ] on: Error do: [ :err | err return: nil ]) ] ]).
+	roots do: [ :entity |
+		self assert: (conceptNames includes: (entity at: '__typename')).
+		self assert: (entity at: 'id') isString ].
 	^ data
 ]
 
@@ -287,6 +284,24 @@ MGModelSchemaTest >> testByIdOfAnotherConceptOrUnknownAnswersNull [
 ]
 
 { #category : 'tests' }
+MGModelSchemaTest >> testCommentedModelHelperImplementsMooseEntity [
+	"Temporary (helper concepts become interfaces in a later batch): the helper TWithComments is an OBJECT implementing MooseEntity with the generic fields; rootEntities of the commented model is CommentedClass"
+
+	| commented schema data |
+	commented := self commentedModel.
+	schema := MGModelSchemaBuilder buildFor: commented.
+	data := self dataFrom: (self
+			         query: '{ helper: __type(name: "TWithComments") { kind interfaces { name } fields { name } } entity: __type(name: "MooseEntity") { possibleTypes { name } } rootEntities { __typename name } }'
+			         variables: nil on: schema model: commented).
+	self assert: ((data at: 'helper') at: 'kind') equals: 'OBJECT'.
+	self assert: (((data at: 'helper') at: 'interfaces') collect: [ :i | i at: 'name' ]) asArray equals: #( 'MooseEntity' ).
+	self assert: ((((data at: 'helper') at: 'fields') collect: [ :f | f at: 'name' ]) includesAll: MGModelSchemaBuilder genericFieldNames).
+	self assert: (((data at: 'entity') at: 'possibleTypes') collect: [ :t | t at: 'name' ]) asSet equals: #( 'Class' 'Comment' 'Method' 'TWithComments' ) asSet.
+	self assert: ((data at: 'rootEntities') collect: [ :e | e at: 'name' ]) asArray equals: #( 'CommentedClass' ).
+	self assert: ((data at: 'rootEntities') collect: [ :e | e at: '__typename' ]) asArray equals: #( 'Class' )
+]
+
+{ #category : 'tests' }
 MGModelSchemaTest >> testConcepts [
 	"MGConcept describes the generated types: root concepts carry their root field names, helper concepts have none"
 
@@ -375,6 +390,67 @@ MGModelSchemaTest >> testFieldNameHelper [
 ]
 
 { #category : 'tests' }
+MGModelSchemaTest >> testGenericContainmentFields [
+	"Generic containment fields reached through the concept root fields: Class1 contains a1, m1 and m2 and has no container; m1 is contained by Class1"
+
+	| data c1 meth |
+	data := self dataFrom: (self
+			         query: '{ classes { name types childrenCount children { __typename name } firstChild: children(take: 1) { name } container { name } containers { name } ancestors { name } } methods { name type types container { __typename name } containers { __typename name } ancestors { name } firstAncestor: ancestors(take: 1) { name } children { name } childrenCount } }'
+			         variables: nil on: self modelSchema model: model).
+	c1 := (data at: 'classes') detect: [ :c | (c at: 'name') = 'Class1' ].
+	self assert: (c1 at: 'childrenCount') equals: 3.
+	self assert: ((c1 at: 'children') collect: [ :c | c at: 'name' ]) asSet equals: #( 'a1' 'm1' 'm2' ) asSet.
+	"children are typed with their concrete concept"
+	self assert: ((c1 at: 'children') collect: [ :c | c at: '__typename' ]) asSet equals: #( 'Attribute' 'Method' ) asSet.
+	self assert: (c1 at: 'firstChild') size equals: 1.
+	self assert: (c1 at: 'container') isNil.
+	self assert: (c1 at: 'containers') isEmpty.
+	self assert: (c1 at: 'ancestors') isEmpty.
+	self assert: (c1 at: 'types') first equals: 'Class'.
+	meth := (data at: 'methods') detect: [ :m | (m at: 'name') = 'm1' ].
+	self assert: (meth at: 'type') equals: 'Method'.
+	self assert: (meth at: 'types') first equals: 'Method'.
+	self assert: ((meth at: 'container') at: '__typename') equals: 'Class'.
+	self assert: ((meth at: 'container') at: 'name') equals: 'Class1'.
+	self assert: ((meth at: 'containers') collect: [ :c | c at: 'name' ]) asArray equals: #( 'Class1' ).
+	self assert: ((meth at: 'containers') collect: [ :c | c at: '__typename' ]) asArray equals: #( 'Class' ).
+	self assert: ((meth at: 'ancestors') collect: [ :c | c at: 'name' ]) asArray equals: #( 'Class1' ).
+	self assert: (meth at: 'firstAncestor') size equals: 1.
+	self assert: (meth at: 'children') isEmpty.
+	self assert: (meth at: 'childrenCount') equals: 0
+]
+
+{ #category : 'tests' }
+MGModelSchemaTest >> testGenericFieldNameClashRenamed [
+	"FM3 properties named like a generic field get a trailing underscore; a name property is dropped (the generic name field already answers it). In a schema, the Tag concept (FM3 properties id and children) exposes id_ and children_ next to the generic fields"
+
+	| builder used nameProperty tagModel tagFields |
+	builder := MGModelSchemaBuilder on: model.
+	used := MGModelSchemaBuilder genericFieldNames asSet.
+	{
+		('id' -> 'id_').
+		('type' -> 'type_').
+		('types' -> 'types_').
+		('container' -> 'container_').
+		('containers' -> 'containers_').
+		('children' -> 'children_').
+		('childrenCount' -> 'childrenCount_').
+		('ancestors' -> 'ancestors_') } do: [ :pair |
+		self assert: (builder fieldNameFor: (FM3Property new name: pair key; yourself) among: used) equals: pair value ].
+	"a second property with the same name is dropped"
+	self assert: (builder fieldNameFor: (FM3Property new name: 'type'; yourself) among: used) isNil.
+	nameProperty := FamixTest1Method new metadescription allProperties detect: [ :p | p name = #name ].
+	self assert: (builder fieldNameFor: nameProperty among: used) isNil.
+	self assert: (MGModelSchemaBuilder renamedGenericFieldNames includes: 'name') not.
+	tagModel := FamixTest1Model new name: 'MGTestTagged'.
+	tagModel add: (FamixTag new name: 'aTag'; yourself).
+	tagFields := self fieldsOfType: 'Tag' in: (self introspectedSchemaOf: (MGModelSchemaBuilder buildFor: tagModel) model: tagModel).
+	self assert: (tagFields keys includesAll: MGModelSchemaBuilder genericFieldNames).
+	self assert: (tagFields includesKey: 'id_').
+	self assert: (tagFields includesKey: 'children_')
+]
+
+{ #category : 'tests' }
 MGModelSchemaTest >> testHelperTypeForPolymorphicRelation [
 	"Comment.commentedEntity is declared as FamixTWithComments, satisfied by both Class and Method in the commented model:
 	it is typed with the hidden helper type TWithComments, which has the identity fields but no root field,
@@ -389,7 +465,7 @@ MGModelSchemaTest >> testHelperTypeForPolymorphicRelation [
 	self
 		assert: queryFieldNames
 		equals:
-		#( 'classes' 'class' 'comments' 'comment' 'methods' 'method' ) asSet.
+		#( 'rootEntities' 'classes' 'class' 'comments' 'comment' 'methods' 'method' ) asSet.
 	"the helper type exists, with no root field"
 	helper := (introspected at: 'types')
 		          detect: [ :t | (t at: 'name') = 'TWithComments' ]
@@ -495,6 +571,46 @@ MGModelSchemaTest >> testListFieldsAndTake [
 	self assert: (data at: 'zero') isEmpty.
 	self assert:
 		((data at: 'c') allSatisfy: [ :c | (c at: 'methods') size = 1 ])
+]
+
+{ #category : 'tests' }
+MGModelSchemaTest >> testMooseEntityInterface [
+	"MooseEntity is an INTERFACE with the 9 generic fields (children and ancestors take an optional take: Int); its possible types are the concepts, and every concept OBJECT type implements it"
+
+	| response iface fields objects |
+	response := self dataFrom: (self
+			             query: '{ __type(name: "MooseEntity") { kind possibleTypes { name } fields { name args { name type { kind name ofType { kind name } } } type { kind name ofType { kind name ofType { kind name ofType { kind name } } } } } } __schema { types { kind name interfaces { name } } } }'
+			             variables: nil on: self modelSchema model: model).
+	iface := response at: '__type'.
+	self assert: (iface at: 'kind') equals: 'INTERFACE'.
+	self assert: ((iface at: 'possibleTypes') collect: [ :t | t at: 'name' ]) asSet equals: #( 'Attribute' 'Class' 'Method' ) asSet.
+	fields := Dictionary new.
+	(iface at: 'fields') do: [ :f | fields at: (f at: 'name') put: f ].
+	self assert: (iface at: 'fields') size equals: 9.
+	self assert: fields keys asSet equals: MGModelSchemaBuilder genericFieldNames asSet.
+	{
+		('id' -> #( 'NON_NULL' 'SCALAR' 'ID' )).
+		('name' -> #( 'SCALAR' 'String' )).
+		('type' -> #( 'SCALAR' 'String' )).
+		('types' -> #( 'NON_NULL' 'LIST' 'NON_NULL' 'SCALAR' 'String' )).
+		('container' -> #( 'INTERFACE' 'MooseEntity' )).
+		('containers' -> #( 'NON_NULL' 'LIST' 'NON_NULL' 'INTERFACE' 'MooseEntity' )).
+		('children' -> #( 'NON_NULL' 'LIST' 'NON_NULL' 'INTERFACE' 'MooseEntity' )).
+		('childrenCount' -> #( 'SCALAR' 'Int' )).
+		('ancestors' -> #( 'NON_NULL' 'LIST' 'NON_NULL' 'INTERFACE' 'MooseEntity' )) } do: [ :pair |
+		self assert: (self kindsOf: ((fields at: pair key) at: 'type')) equals: pair value ].
+	#( 'children' 'ancestors' ) do: [ :n |
+		| args |
+		args := (fields at: n) at: 'args'.
+		self assert: (args collect: [ :a | a at: 'name' ]) asArray equals: #( 'take' ).
+		self assert: (self kindsOf: (args first at: 'type')) equals: #( 'SCALAR' 'Int' ) ].
+	#( 'id' 'name' 'type' 'types' 'container' 'containers' 'childrenCount' ) do: [ :n |
+		self assert: ((fields at: n) at: 'args') isEmpty ].
+	objects := ((response at: '__schema') at: 'types') select: [ :t |
+		           (t at: 'kind') = 'OBJECT' and: [ (t at: 'name') ~= 'Query' and: [ ((t at: 'name') beginsWith: '__') not ] ] ].
+	self assert: (objects collect: [ :t | t at: 'name' ]) asSet equals: #( 'Attribute' 'Class' 'Method' ) asSet.
+	objects do: [ :t |
+		self assert: ((t at: 'interfaces') collect: [ :i | i at: 'name' ]) asArray equals: #( 'MooseEntity' ) ]
 ]
 
 { #category : 'tests' }
@@ -746,16 +862,16 @@ MGModelSchemaTest >> testObjectTypesAreModelConcepts [
 
 { #category : 'tests' }
 MGModelSchemaTest >> testQueryFields [
-	"Each root concept has a plural lowerFirst list field and a singular lowerFirst by-id field; nothing else"
+	"Each root concept has a plural lowerFirst list field and a singular lowerFirst by-id field; plus the generic rootEntities field; nothing else"
 
 	| fields |
 	fields := (self introspectedSchema at: 'queryType') at: 'fields'.
 	self
 		assert: (fields collect: [ :f | f at: 'name' ]) asSet
 		equals:
-			#( 'attributes' 'attribute' 'classes' 'class' 'methods' 'method' )
+			#( 'rootEntities' 'attributes' 'attribute' 'classes' 'class' 'methods' 'method' )
 				asSet.
-	self assert: fields size equals: 6
+	self assert: fields size equals: 7
 ]
 
 { #category : 'tests' }
@@ -903,6 +1019,49 @@ MGModelSchemaTest >> testReservedNamesAndNameHelpers [
 		equals:
 			#( 'classes' 'methods' 'accesses' 'entities' 'properties'
 			   'boxes' 'matches' 'flashes' 'keys' )
+]
+
+{ #category : 'tests' }
+MGModelSchemaTest >> testReservedTypeNamesIncludeMooseEntity [
+	"MooseEntity is the generic interface: no concept may take its name"
+
+	self assert: (MGModelSchemaBuilder reservedTypeNames includes: 'MooseEntity').
+	self assert: (MGModelSchemaBuilder reservedTypeNames includes: 'Query')
+]
+
+{ #category : 'tests' }
+MGModelSchemaTest >> testRootEntities [
+	"rootEntities(take: Int) answers the entities without container (Class1 and Class2), typed with their concrete concept, as a list of MooseEntity"
+
+	| data field |
+	data := self dataFrom: (self
+			         query: '{ rootEntities { __typename name type } first: rootEntities(take: 1) { name } }'
+			         variables: nil on: self modelSchema model: model).
+	self assert: (data at: 'rootEntities') size equals: 2.
+	self assert: ((data at: 'rootEntities') collect: [ :e | e at: 'name' ]) asSet equals: #( 'Class1' 'Class2' ) asSet.
+	self assert: ((data at: 'rootEntities') allSatisfy: [ :e | (e at: '__typename') = 'Class' and: [ (e at: 'type') = 'Class' ] ]).
+	self assert: (data at: 'first') size equals: 1.
+	field := ((self introspectedSchema at: 'queryType') at: 'fields') detect: [ :f | (f at: 'name') = 'rootEntities' ].
+	self assert: (self kindsOf: (field at: 'type')) equals: #( 'NON_NULL' 'LIST' 'NON_NULL' 'INTERFACE' 'MooseEntity' ).
+	self assert: ((field at: 'args') collect: [ :a | a at: 'name' ]) asArray equals: #( 'take' ).
+	self assert: (self kindsOf: ((field at: 'args') first at: 'type')) equals: #( 'SCALAR' 'Int' )
+]
+
+{ #category : 'tests' }
+MGModelSchemaTest >> testRootFieldsAnswerExactClass [
+	"Each concept list field answers the instances of exactly the concept class (the fixture has no instance of a subclass, so counts are the exact-class counts)"
+
+	| data |
+	data := self dataFrom: (self
+			         query: '{ classes { type } methods { type } attributes { type } }'
+			         variables: nil on: self modelSchema model: model).
+	{
+		{ 'classes'. FamixTest1Class. 'Class'. 2 }.
+		{ 'methods'. FamixTest1Method. 'Method'. 3 }.
+		{ 'attributes'. FamixTest1Attribute. 'Attribute'. 1 } } do: [ :spec |
+		self assert: (data at: spec first) size equals: spec fourth.
+		self assert: (data at: spec first) size equals: (model entities count: [ :e | e class == spec second ]).
+		self assert: ((data at: spec first) allSatisfy: [ :e | (e at: 'type') = spec third ]) ]
 ]
 
 { #category : 'tests' }
