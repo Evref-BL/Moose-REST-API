@@ -376,6 +376,14 @@ GQLIntrospection >> object: aName description: aDescription fields: aBlock [
 	^ type
 ]
 
+{ #category : 'resolving' }
+GQLIntrospection >> possibleTypesOf: aType [
+	"Answer the object types (sorted by name) that may be the runtime type of aType when it is abstract (interface), nil otherwise"
+
+	aType isAbstract ifFalse: [ ^ nil ].
+	^ schema possibleTypesOf: aType
+]
+
 { #category : 'private' }
 GQLIntrospection >> resolveTypesOf: aNamedType [
 	"Resolve the type references of the fields and arguments of aNamedType against my schema"

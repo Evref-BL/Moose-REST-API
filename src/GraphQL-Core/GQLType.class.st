@@ -154,6 +154,13 @@ GQLType >> description: aString [
 	description := aString
 ]
 
+{ #category : 'testing' }
+GQLType >> implements: anInterfaceTypeOrName [
+	"Only composite types (object and interface types) may implement interfaces"
+
+	^ false
+]
+
 { #category : 'accessing' }
 GQLType >> interfaces [
 	"Answer the interfaces implemented by the receiver (introspection __Type.interfaces): nil unless the receiver is an object type"
@@ -162,14 +169,46 @@ GQLType >> interfaces [
 ]
 
 { #category : 'testing' }
+GQLType >> isAbstract [
+	"Answer whether the receiver is an abstract type whose concrete object type is determined at runtime (interface)"
+
+	^ false
+]
+
+{ #category : 'testing' }
+GQLType >> isComposite [
+	"Answer whether the receiver is a composite output type declaring fields (object or interface type)"
+
+	^ false
+]
+
+{ #category : 'testing' }
 GQLType >> isEnum [
 	^ false
+]
+
+{ #category : 'testing' }
+GQLType >> isEqualType: aType [
+	"Answer whether the receiver and aType denote the same type: same list/non-null wrappers around the same named type"
+
+	aType ifNil: [ ^ false ].
+	self isWrapper ifTrue: [
+			^ aType isWrapper and: [
+				  self kind = aType kind and: [
+					  self ofType isEqualType: aType ofType ] ] ].
+	^ aType isWrapper not and: [ self name = aType name ]
 ]
 
 { #category : 'testing' }
 GQLType >> isInputType [
 	"Answer whether the receiver can be used as an argument / variable type"
 	^ self namedType isLeaf
+]
+
+{ #category : 'testing' }
+GQLType >> isInterface [
+
+	^ false
 ]
 
 { #category : 'testing' }
@@ -206,6 +245,29 @@ GQLType >> isOutputType [
 { #category : 'testing' }
 GQLType >> isScalar [
 	^ false
+]
+
+{ #category : 'testing' }
+GQLType >> isSubTypeOf: aType in: aSchema [
+	"Answer whether a value of the receiver type is valid where aType is expected (GraphQL IsValidImplementationFieldType):
+	non-null and list types are covariant, a non-null type is a subtype of its nullable counterpart,
+	and an object or interface type is a subtype of the interfaces it implements in aSchema"
+
+	aType ifNil: [ ^ false ].
+	aType isNonNull ifTrue: [
+			^ self isNonNull and: [
+				  self ofType isSubTypeOf: aType ofType in: aSchema ] ].
+	self isNonNull ifTrue: [
+		^ self ofType isSubTypeOf: aType in: aSchema ].
+	aType isList ifTrue: [
+			^ self isList and: [
+				  self ofType isSubTypeOf: aType ofType in: aSchema ] ].
+	self isList ifTrue: [ ^ false ].
+	self name = aType name ifTrue: [ ^ true ].
+	^ aType isInterface and: [
+			  self isComposite and: [
+					  (aSchema isPossibleType: self for: aType) or: [
+						  self implements: aType ] ] ]
 ]
 
 { #category : 'testing' }
