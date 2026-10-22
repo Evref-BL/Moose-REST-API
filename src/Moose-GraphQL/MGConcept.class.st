@@ -18,7 +18,9 @@ Class {
 		'typeName',
 		'listFieldName',
 		'byIdFieldName',
-		'isRoot'
+		'isRoot',
+		'fields',
+		'interfaces'
 	],
 	#category : 'Moose-GraphQL-Schema',
 	#package : 'Moose-GraphQL',
@@ -84,6 +86,18 @@ MGConcept >> description [
 ]
 
 { #category : 'accessing' }
+MGConcept >> fields [
+	"Field specs of the concept type (see MGModelSchemaBuilder>>#fieldSpecsOf:), by field name"
+
+	^ fields ifNil: [ fields := OrderedDictionary new ]
+]
+
+{ #category : 'accessing' }
+MGConcept >> fields: anOrderedDictionary [
+	fields := anOrderedDictionary
+]
+
+{ #category : 'accessing' }
 MGConcept >> fm3Type [
 	^ fm3Type
 ]
@@ -92,6 +106,18 @@ MGConcept >> fm3Type [
 MGConcept >> fullName [
 	"FM3 qualified name (e.g. Famix-Test1-Entities.Method)"
 	^ MGSafe do: [ fm3Type fullName asString ] default: [ self shortName ]
+]
+
+{ #category : 'accessing' }
+MGConcept >> interfaces [
+	"Interface concepts implemented by the concept type"
+
+	^ interfaces ifNil: [ interfaces := OrderedCollection new ]
+]
+
+{ #category : 'accessing' }
+MGConcept >> interfaces: aCollection [
+	interfaces := aCollection
 ]
 
 { #category : 'testing' }

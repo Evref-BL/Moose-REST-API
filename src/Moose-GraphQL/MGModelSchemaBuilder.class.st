@@ -197,7 +197,8 @@ MGModelSchemaBuilder >> build [
 			  (registry modelNameOf: model) ].
 	self
 		assignTypeNames;
-		assignRootFieldNames.
+		assignRootFieldNames;
+		computeFields.
 	builder := GQLSchemaBuilder new.
 	self
 		defineNumberScalar;
@@ -224,11 +225,11 @@ MGModelSchemaBuilder >> collectConcepts [
 		pending addAll: (self newTargetConceptsOf: pending removeFirst) ]
 ]
 
-{ #category : 'accessing' }
-MGModelSchemaBuilder >> conceptFor: anFM3Type [
-	"The concept standing for anFM3Type (concrete class or declared relation type)"
+{ #category : 'building' }
+MGModelSchemaBuilder >> computeFields [
+	"Compute the field specs of every concept (see #fieldSpecsOf:)"
 
-	^ concepts at: (self targetTypeFor: anFM3Type)
+	self concepts do: [ :each | each fields: (self fieldSpecsOf: each) ]
 ]
 
 { #category : 'accessing' }
@@ -290,23 +291,10 @@ MGModelSchemaBuilder >> defineConceptTypes [
 
 { #category : 'building' }
 MGModelSchemaBuilder >> defineFieldsOf: aConcept on: anObjectTypeBuilder [
+	"Generic MooseEntity fields first, then the fields specified for aConcept (see #fieldSpecsOf:)"
 
-	| used |
-	used := Set withAll: self class genericFieldNames.
 	self defineGenericFieldsOn: anObjectTypeBuilder.
-	(self primitivePropertiesOf: aConcept) do: [ :property |
-			(self fieldNameFor: property among: used) ifNotNil: [ :name |
-					self
-						definePrimitiveField: name
-						for: property
-						in: aConcept
-						on: anObjectTypeBuilder ] ].
-	(self exposedRelationPropertiesOf: aConcept) do: [ :property |
-			(self fieldNameFor: property among: used) ifNotNil: [ :name |
-				self
-					defineRelationField: name
-					for: property
-					on: anObjectTypeBuilder ] ]
+	self defineSpecFields: aConcept on: anObjectTypeBuilder
 ]
 
 { #category : 'building' }
@@ -413,28 +401,6 @@ MGModelSchemaBuilder >> defineNumberScalar [
 ]
 
 { #category : 'building' }
-MGModelSchemaBuilder >> definePrimitiveField: aName for: anFM3Property in: aConcept on: anObjectTypeBuilder [
-	"Scalar field aName of the type of aConcept exposing anFM3Property (see #scalarNameFor:in:)"
-
-	self
-		definePrimitiveField: aName
-		for: anFM3Property
-		scalar: (self scalarNameFor: anFM3Property in: aConcept)
-		on: anObjectTypeBuilder
-]
-
-{ #category : 'building' }
-MGModelSchemaBuilder >> definePrimitiveField: aName for: anFM3Property on: anObjectTypeBuilder [
-	"Scalar field aName exposing anFM3Property, its scalar derived from the type name only (see #scalarNameFor:); prefer #definePrimitiveField:for:in:on: which also infers Object-typed properties"
-
-	self
-		definePrimitiveField: aName
-		for: anFM3Property
-		scalar: (self scalarNameFor: anFM3Property)
-		on: anObjectTypeBuilder
-]
-
-{ #category : 'building' }
 MGModelSchemaBuilder >> definePrimitiveField: aName for: anFM3Property scalar: aScalarName on: anObjectTypeBuilder [
 	"Field aName of scalar type aScalarName (a list of it when anFM3Property is multivalued) exposing anFM3Property"
 
@@ -480,27 +446,27 @@ MGModelSchemaBuilder >> defineQuery [
 ]
 
 { #category : 'building' }
-MGModelSchemaBuilder >> defineRelationField: aName for: anFM3Property on: anObjectTypeBuilder [
-	| target |
-	target := (self conceptFor: anFM3Property type) typeName.
-	(self isMultivalued: anFM3Property)
+MGModelSchemaBuilder >> defineRelationField: aFieldSpec on: anObjectTypeBuilder [
+	"Relation field of aFieldSpec: a list bounded by a take argument when multivalued, the first entity (or null) otherwise"
+
+	aFieldSpec hasTakeArgument
 		ifTrue: [
 			anObjectTypeBuilder
-				field: aName
-				type: '[' , target , '!]!'
-				description: (self descriptionOf: anFM3Property)
+				field: aFieldSpec name
+				type: aFieldSpec typeString
+				description: (self descriptionOf: aFieldSpec property)
 				args: { ('take' -> 'Int') }
 				resolve: [ :entity :args :context |
 					MGSafe
 						take: (MGSchema arg: 'take' in: args)
-						from: (self entitiesOf: anFM3Property in: entity) ] ]
+						from: (self entitiesOfField: aFieldSpec in: entity) ] ]
 		ifFalse: [
 			anObjectTypeBuilder
-				field: aName
-				type: target
-				description: (self descriptionOf: anFM3Property)
+				field: aFieldSpec name
+				type: aFieldSpec typeString
+				description: (self descriptionOf: aFieldSpec property)
 				resolve: [ :entity :args :context |
-					(self entitiesOf: anFM3Property in: entity)
+					(self entitiesOfField: aFieldSpec in: entity)
 						ifEmpty: [ nil ]
 						ifNotEmpty: [ :entities | entities first ] ] ]
 ]
@@ -526,6 +492,21 @@ MGModelSchemaBuilder >> defineRootFieldsOf: aConcept on: anObjectTypeBuilder [
 			(self registryFrom: context)
 				entityAt: (MGSchema arg: 'id' in: args)
 				ofAnyOf: aConcept conformingClasses ]
+]
+
+{ #category : 'building' }
+MGModelSchemaBuilder >> defineSpecFields: aConcept on: anObjectTypeBuilder [
+	"Define the fields specified by the field specs of aConcept (see #computeFields)"
+
+	aConcept fields do: [ :spec |
+		spec isScalar
+			ifTrue: [
+				self
+					definePrimitiveField: spec name
+					for: spec property
+					scalar: spec scalarName
+					on: anObjectTypeBuilder ]
+			ifFalse: [ self defineRelationField: spec on: anObjectTypeBuilder ] ]
 ]
 
 { #category : 'building' }
@@ -596,6 +577,17 @@ MGModelSchemaBuilder >> entitiesOf: anFM3Property in: anEntity [
 	^ MGSafe entitiesIn: (self rawValueOf: anFM3Property in: anEntity)
 ]
 
+{ #category : 'building' }
+MGModelSchemaBuilder >> entitiesOfField: aFieldSpec in: anEntity [
+	"Entities held by the relation of aFieldSpec in anEntity, restricted to the exposable ones when the field is typed with MooseEntity (see #exposable:)"
+
+	| entities |
+	entities := self entitiesOf: aFieldSpec property in: anEntity.
+	^ aFieldSpec target
+		  ifNil: [ self exposable: entities ]
+		  ifNotNil: [ entities ]
+]
+
 { #category : 'resolving' }
 MGModelSchemaBuilder >> exposable: aCollection [
 	"The entities of aCollection having a concept object type (see #exposableEntity:), as an Array"
@@ -629,6 +621,30 @@ MGModelSchemaBuilder >> fieldNameFor: anFM3Property among: usedNames [
 	(usedNames includes: name) ifTrue: [ ^ nil ].
 	usedNames add: name.
 	^ name
+]
+
+{ #category : 'building' }
+MGModelSchemaBuilder >> fieldSpecsOf: aConcept [
+	"Field specs (MGConceptField) of aConcept by field name: primitive properties first, then exposed relations; names unique and distinct from the generic field names (see #fieldNameFor:among:)"
+
+	| used specs |
+	used := Set withAll: self class genericFieldNames.
+	specs := OrderedDictionary new.
+	(self primitivePropertiesOf: aConcept) do: [ :property |
+		(self fieldNameFor: property among: used) ifNotNil: [ :name |
+			specs at: name put: (MGConceptField
+					 scalarNamed: name
+					 property: property
+					 scalarName: (self scalarNameFor: property in: aConcept)
+					 multivalued: (self isMultivalued: property)) ] ].
+	(self exposedRelationPropertiesOf: aConcept) do: [ :property |
+		(self fieldNameFor: property among: used) ifNotNil: [ :name |
+			specs at: name put: (MGConceptField
+					 relationNamed: name
+					 property: property
+					 target: (self targetConceptFor: property type)
+					 multivalued: (self isMultivalued: property)) ] ].
+	^ specs
 ]
 
 { #category : 'concepts' }
@@ -1027,6 +1043,13 @@ MGModelSchemaBuilder >> supertypeSetOf: anFM3Class [
 	supertypeSets ifNil: [ supertypeSets := IdentityDictionary new ].
 	^ supertypeSets at: anFM3Class ifAbsentPut: [
 		  (registry withAllSupertypesOf: anFM3Class) asIdentitySet ]
+]
+
+{ #category : 'building' }
+MGModelSchemaBuilder >> targetConceptFor: aDeclaredType [
+	"The concept typing a relation declared with aDeclaredType: the root concept of its single conforming concrete class, its helper concept otherwise (see #targetTypeFor:)"
+
+	^ concepts at: (self targetTypeFor: aDeclaredType)
 ]
 
 { #category : 'concepts' }
