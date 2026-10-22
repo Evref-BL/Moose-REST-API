@@ -284,55 +284,54 @@ MGModelSchemaTest >> testByIdOfAnotherConceptOrUnknownAnswersNull [
 ]
 
 { #category : 'tests' }
-MGModelSchemaTest >> testCommentedModelHelperImplementsMooseEntity [
-	"Temporary (helper concepts become interfaces in a later batch): the helper TWithComments is an OBJECT implementing MooseEntity with the generic fields; rootEntities of the commented model is CommentedClass"
+MGModelSchemaTest >> testCommentedModelInterfaces [
+	"The supertype TWithComments of Class and Method is an INTERFACE implementing MooseEntity first, with the generic fields; MooseEntity is implemented by the object types only; rootEntities of the commented model is CommentedClass"
 
 	| commented schema data |
 	commented := self commentedModel.
 	schema := MGModelSchemaBuilder buildFor: commented.
 	data := self dataFrom: (self
-			         query: '{ helper: __type(name: "TWithComments") { kind interfaces { name } fields { name } } entity: __type(name: "MooseEntity") { possibleTypes { name } } rootEntities { __typename name } }'
-			         variables: nil on: schema model: commented).
-	self assert: ((data at: 'helper') at: 'kind') equals: 'OBJECT'.
-	self assert: (((data at: 'helper') at: 'interfaces') collect: [ :i | i at: 'name' ]) asArray equals: #( 'MooseEntity' ).
-	self assert: ((((data at: 'helper') at: 'fields') collect: [ :f | f at: 'name' ]) includesAll: MGModelSchemaBuilder genericFieldNames).
-	self assert: (((data at: 'entity') at: 'possibleTypes') collect: [ :t | t at: 'name' ]) asSet equals: #( 'Class' 'Comment' 'Method' 'TWithComments' ) asSet.
+		query: '{ interface: __type(name: "TWithComments") { kind interfaces { name } possibleTypes { name } fields { name } } entity: __type(name: "MooseEntity") { possibleTypes { name } } rootEntities { __typename name } }'
+		variables: nil on: schema model: commented).
+	self assert: ((data at: 'interface') at: 'kind') equals: 'INTERFACE'.
+	self assert: (((data at: 'interface') at: 'interfaces') collect: [ :i | i at: 'name' ]) first equals: 'MooseEntity'.
+	self assert: (((data at: 'interface') at: 'possibleTypes') collect: [ :t | t at: 'name' ]) asSet equals: #( 'Class' 'Method' ) asSet.
+	self assert: ((((data at: 'interface') at: 'fields') collect: [ :f | f at: 'name' ]) includesAll: MGModelSchemaBuilder genericFieldNames).
+	self assert: (((data at: 'entity') at: 'possibleTypes') collect: [ :t | t at: 'name' ]) asSet equals: #( 'Class' 'Comment' 'Method' ) asSet.
 	self assert: ((data at: 'rootEntities') collect: [ :e | e at: 'name' ]) asArray equals: #( 'CommentedClass' ).
 	self assert: ((data at: 'rootEntities') collect: [ :e | e at: '__typename' ]) asArray equals: #( 'Class' )
 ]
 
 { #category : 'tests' }
 MGModelSchemaTest >> testConcepts [
-	"MGConcept describes the generated types: root concepts carry their root field names, helper concepts have none"
+	"MGConcept describes the generated types: object concepts (concrete classes having instances) and interface concepts (their FM3 supertypes); both carry root field names"
 
-	| builder roots helpers helper |
+	| builder objects interfaces withComments |
 	builder := MGModelSchemaBuilder on: self commentedModel.
 	builder build.
-	roots := builder concepts select: [ :c | c isRoot ].
-	helpers := builder concepts select: [ :c | c isHelper ].
-	self
-		assert: (roots collect: [ :c | c typeName ]) asSet
-		equals: #( 'Class' 'Comment' 'Method' ) asSet.
-	self
-		assert: (builder rootConcepts collect: [ :c | c typeName ]) asSet
-		equals: (roots collect: [ :c | c typeName ]) asSet.
-	(roots detect: [ :c | c typeName = 'Class' ]) in: [ :class |
-			self assert: class listFieldName equals: 'classes'.
-			self assert: class byIdFieldName equals: 'class'.
-			self deny: class isHelper.
-			self assert: class shortName equals: 'Class'.
-			self assert: class fullName equals: 'Famix-Test1-Entities.Class' ].
-	self assert: helpers size equals: 1.
-	helper := helpers first.
-	self assert: helper typeName equals: 'TWithComments'.
-	self deny: helper isRoot.
-	self assert: helper listFieldName isNil.
-	self assert: helper byIdFieldName isNil.
-	self
-		assert:
-		(helper conformingClasses collect: [ :c | c name asString ]) asSet
-		equals: #( 'Class' 'Method' ) asSet.
-	self assert: (helper description includesSubstring: 'Class, Method')
+	objects := builder concepts select: [ :c | c isRoot ].
+	interfaces := builder concepts select: [ :c | c isInterface ].
+	self assert: (objects collect: [ :c | c typeName ]) asSet equals: #( 'Class' 'Comment' 'Method' ) asSet.
+	self assert: (builder rootConcepts collect: [ :c | c typeName ]) asSet equals: (objects collect: [ :c | c typeName ]) asSet.
+	self assert: (objects allSatisfy: [ :c | c isObject and: [ c kind = #object and: [ c isHelper not ] ] ]).
+	self assert: builder concepts size equals: objects size + interfaces size.
+	self assert: (builder sortedInterfaceConcepts collect: [ :c | c typeName ]) asSet equals: (interfaces collect: [ :c | c typeName ]) asSet.
+	(objects detect: [ :c | c typeName = 'Class' ]) in: [ :class |
+		self assert: class listFieldName equals: 'classes'.
+		self assert: class byIdFieldName equals: 'class'.
+		self deny: class isHelper.
+		self assert: class shortName equals: 'Class'.
+		self assert: class fullName equals: 'Famix-Test1-Entities.Class' ].
+	interfaces do: [ :each |
+		self assert: each kind equals: #interface.
+		self deny: each isRoot.
+		self assert: each isHelper.
+		self assert: each listFieldName notNil.
+		self assert: each byIdFieldName notNil ].
+	withComments := interfaces detect: [ :c | c typeName = 'TWithComments' ].
+	self assert: (withComments conformingClasses collect: [ :c | c name asString ]) asSet equals: #( 'Class' 'Method' ) asSet.
+	self assert: (withComments description includesSubstring: 'interface').
+	self assert: (withComments description includesSubstring: 'Class, Method')
 ]
 
 { #category : 'tests' }
@@ -358,6 +357,36 @@ MGModelSchemaTest >> testEmptyModelSignalsError [
 				 modelName: 'X';
 				 messageText)
 		equals: 'Model X has no entity to expose'
+]
+
+{ #category : 'tests' }
+MGModelSchemaTest >> testFASTTestModelSchema [
+	"A FAST model (FASTTestModel: a class holding a method statement) gets object types Class and Method, interfaces for the FAST traits, and the generic containment fields work"
+
+	| env fast class method schema introspected kinds data |
+	env := self class environment.
+	(env includesKey: #FASTTestModel) ifFalse: [ ^ self skip: 'FAST-Core-Test-Model is not loaded' ].
+	fast := (env at: #FASTTestModel) new name: 'MGTestFAST'.
+	class := (env at: #FASTTestClass) new.
+	method := (env at: #FASTTestMethod) new.
+	(class respondsTo: #name:) ifTrue: [ class name: 'FastClass' ].
+	(method respondsTo: #name:) ifTrue: [ method name: 'fastMethod' ].
+	class addStatement: method.
+	fast addAll: { class. method }.
+	schema := MGModelSchemaBuilder buildFor: fast.
+	introspected := self introspectedSchemaOf: schema model: fast.
+	self
+		assert: ((self conceptObjectTypesOf: introspected) collect: [ :t | t at: 'name' ]) asSet
+		equals: #( 'Class' 'Method' ) asSet.
+	kinds := Dictionary new.
+	(introspected at: 'types') do: [ :t | kinds at: (t at: 'name') put: (t at: 'kind') ].
+	#( 'TStatement' 'TStatementBlock' 'TNamedBehaviouralEntity' 'Entity' 'MooseEntity' ) do: [ :name |
+		self assert: (kinds at: name ifAbsent: [ nil ]) equals: 'INTERFACE' ].
+	data := self dataFrom: (self
+		query: '{ rootEntities { __typename children { __typename } } }'
+		variables: nil on: schema model: fast).
+	self assert: ((data at: 'rootEntities') collect: [ :e | e at: '__typename' ]) asArray equals: #( 'Class' ).
+	self assert: (((data at: 'rootEntities') first at: 'children') collect: [ :e | e at: '__typename' ]) asArray equals: #( 'Method' )
 ]
 
 { #category : 'tests' }
@@ -387,6 +416,34 @@ MGModelSchemaTest >> testFieldNameHelper [
 						  yourself)
 				 among: used)
 		equals: 'numberOfMethods'
+]
+
+{ #category : 'tests' }
+MGModelSchemaTest >> testFragmentsAndTypenameOnInterfaces [
+	"Inline fragments on concrete types select fields inside an interface list; a fragment on an interface applies inside an object field; __typename is always the concrete type"
+
+	| data entities class1 |
+	data := self dataFrom: (self
+		query: '{ namedEntities { __typename id ... on Class { name methods { name } } ... on Method { name } } classes { name methods { __typename ... on TNamedEntity { name } ... on TMethod { id } } } }'
+		variables: nil on: self modelSchema model: model).
+	entities := data at: 'namedEntities'.
+	self assert: entities size equals: 6.
+	self assert: (entities allSatisfy: [ :e | e includesKey: 'id' ]).
+	(entities select: [ :e | (e at: '__typename') = 'Class' ]) do: [ :e | self assert: (e includesKey: 'methods') ].
+	self
+		assert: ((entities select: [ :e | (e at: '__typename') = 'Class' ]) collect: [ :e | e at: 'name' ]) asSet
+		equals: #( 'Class1' 'Class2' ) asSet.
+	self
+		assert: ((entities select: [ :e | (e at: '__typename') = 'Method' ]) collect: [ :e | e at: 'name' ]) asSet
+		equals: #( 'm1' 'm2' 'm3' ) asSet.
+	(entities select: [ :e | (e at: '__typename') = 'Attribute' ]) do: [ :e |
+		self deny: (e includesKey: 'name').
+		self deny: (e includesKey: 'methods') ].
+	class1 := (data at: 'classes') detect: [ :c | (c at: 'name') = 'Class1' ].
+	self assert: ((class1 at: 'methods') collect: [ :m | m at: 'name' ]) asSet equals: #( 'm1' 'm2' ) asSet.
+	(class1 at: 'methods') do: [ :m |
+		self assert: (m at: '__typename') equals: 'Method'.
+		self assert: (m includesKey: 'id') ]
 ]
 
 { #category : 'tests' }
@@ -451,64 +508,29 @@ MGModelSchemaTest >> testGenericFieldNameClashRenamed [
 ]
 
 { #category : 'tests' }
-MGModelSchemaTest >> testHelperTypeForPolymorphicRelation [
-	"Comment.commentedEntity is declared as FamixTWithComments, satisfied by both Class and Method in the commented model:
-	it is typed with the hidden helper type TWithComments, which has the identity fields but no root field,
-	and its values report their concrete concept through type"
+MGModelSchemaTest >> testIPrefixForConcreteSupertype [
+	"FamixTest3ParametricClass is a subclass of FamixTest3Class: with instances of both, Class is an OBJECT answering exactly the Class instances, and its FM3 type also becomes the interface IClass, implemented by Class and ParametricClass"
 
-	| commented schema introspected queryFieldNames commentFields helper data |
-	commented := self commentedModel.
-	schema := MGModelSchemaBuilder buildFor: commented.
-	introspected := self introspectedSchemaOf: schema model: commented.
-	queryFieldNames := (((introspected at: 'queryType') at: 'fields')
-		                    collect: [ :f | f at: 'name' ]) asSet.
-	self
-		assert: queryFieldNames
-		equals:
-		#( 'rootEntities' 'classes' 'class' 'comments' 'comment' 'methods' 'method' ) asSet.
-	"the helper type exists, with no root field"
-	helper := (introspected at: 'types')
-		          detect: [ :t | (t at: 'name') = 'TWithComments' ]
-		          ifNone: [ nil ].
-	self assert: helper notNil.
-	self assert: (helper at: 'kind') equals: 'OBJECT'.
-	self assert:
-		((helper at: 'description') includesSubstring: 'polymorphic').
-	self deny: (queryFieldNames anySatisfy: [ :n |
-			 n asLowercase includesSubstring: 'withcomment' ]).
-	self assert:
-		(((introspected at: 'queryType') at: 'fields') noneSatisfy: [ :f |
-			 (self kindsOf: (f at: 'type')) last = 'TWithComments' ]).
-	self assert:
-		((self fieldsOfType: 'TWithComments' in: introspected) keys
-			 includesAll: #( 'id' 'name' 'type' )).
-	commentFields := self fieldsOfType: 'Comment' in: introspected.
-	self
-		assert:
-		(self kindsOf: ((commentFields at: 'commentedEntity') at: 'type'))
-		equals: #( 'OBJECT' 'TWithComments' ).
-	"Class.comments and Method.comments are typed with the single concrete Comment concept"
-	self
-		assert: (self kindsOf:
-				 (((self fieldsOfType: 'Class' in: introspected) at: 'comments')
-					  at: 'type'))
-		equals: #( 'NON_NULL' 'LIST' 'NON_NULL' 'OBJECT' 'Comment' ).
+	| test3 schema data objectInterfaces |
+	test3 := FamixTest3Model new name: 'MGTestIPrefix'.
+	test3 addAll: { FamixTest3Class named: 'C'. FamixTest3ParametricClass named: 'P' }.
+	schema := MGModelSchemaBuilder buildFor: test3.
 	data := self dataFrom: (self
-			         query:
-			         '{ comments { commentedEntity { __typename type name } } }'
-			         variables: nil
-			         on: schema
-			         model: commented).
+		query: '{ object: __type(name: "Class") { kind interfaces { name } } interface: __type(name: "IClass") { kind interfaces { name } possibleTypes { name } } sub: __type(name: "ParametricClass") { kind interfaces { name } } classes { __typename name } }'
+		variables: nil on: schema model: test3).
+	objectInterfaces := ((data at: 'object') at: 'interfaces') collect: [ :i | i at: 'name' ].
+	self assert: ((data at: 'object') at: 'kind') equals: 'OBJECT'.
+	self assert: objectInterfaces first equals: 'MooseEntity'.
+	self assert: (objectInterfaces includes: 'IClass').
+	self assert: ((data at: 'interface') at: 'kind') equals: 'INTERFACE'.
+	self deny: ((((data at: 'interface') at: 'interfaces') collect: [ :i | i at: 'name' ]) includes: 'IClass').
 	self
-		assert: ((data at: 'comments') collect: [ :c |
-				 (c at: 'commentedEntity') at: 'type' ]) asSet
-		equals: #( 'Class' 'Method' ) asSet.
-	self
-		assert: ((data at: 'comments') collect: [ :c |
-				 (c at: 'commentedEntity') at: 'name' ]) asSet
-		equals: #( 'CommentedClass' 'commentedMethod' ) asSet.
-	self assert: ((data at: 'comments') allSatisfy: [ :c |
-			 ((c at: 'commentedEntity') at: '__typename') = 'TWithComments' ])
+		assert: (((data at: 'interface') at: 'possibleTypes') collect: [ :t | t at: 'name' ]) asSet
+		equals: #( 'Class' 'ParametricClass' ) asSet.
+	self assert: ((data at: 'sub') at: 'kind') equals: 'OBJECT'.
+	self assert: ((((data at: 'sub') at: 'interfaces') collect: [ :i | i at: 'name' ]) includes: 'IClass').
+	self assert: ((data at: 'classes') collect: [ :c | c at: 'name' ]) asArray equals: #( 'C' ).
+	self assert: ((data at: 'classes') collect: [ :c | c at: '__typename' ]) asArray equals: #( 'Class' )
 ]
 
 { #category : 'tests' }
@@ -545,6 +567,183 @@ MGModelSchemaTest >> testIdentityFieldsAndDescriptions [
 ]
 
 { #category : 'tests' }
+MGModelSchemaTest >> testInterfaceFieldDroppedWhenIncompatible [
+	"computeFields keeps an interface field only when every implementer (object or sub-interface) has a compatible field, up to a fixpoint.
+	Hand-built concepts (see MGFixedFieldsSchemaBuilder): objects a and b; interface sub implemented by a and b; interface superInterface implemented by a and sub only, processed first (sorted by FM3 fullName: Attribute before Comment).
+	x: b has a Number scalar instead of a String one; r: b is single-valued instead of multivalued. Both are dropped from sub on the first pass, then from superInterface on the second pass (sub no longer provides them). y is compatible everywhere and stays; object fields are untouched"
+
+	| fieldsOf a b sub superInterface builder |
+	fieldsOf := [ :xScalar :rMultivalued |
+		Dictionary new
+			at: 'x' put: (MGConceptField scalarNamed: 'x' property: nil scalarName: xScalar multivalued: false);
+			at: 'y' put: (MGConceptField scalarNamed: 'y' property: nil scalarName: 'String' multivalued: false);
+			at: 'r' put: (MGConceptField relationNamed: 'r' property: nil target: nil multivalued: rMultivalued);
+			yourself ].
+	a := MGConcept objectType: FamixTest1Class metadescription conformingClasses: #(  ).
+	b := MGConcept objectType: FamixTest1Method metadescription conformingClasses: #(  ).
+	sub := MGConcept interfaceType: FamixTest1Comment metadescription conformingClasses: #(  ).
+	superInterface := MGConcept interfaceType: FamixTest1Attribute metadescription conformingClasses: #(  ).
+	a fields: (fieldsOf value: 'String' value: true).
+	b fields: (fieldsOf value: 'Number' value: false).
+	sub fields: (fieldsOf value: 'String' value: true).
+	superInterface fields: (fieldsOf value: 'String' value: true).
+	a interfaces: { sub. superInterface }.
+	b interfaces: { sub }.
+	sub interfaces: { superInterface }.
+	superInterface interfaces: #(  ).
+	builder := MGFixedFieldsSchemaBuilder new objects: { a. b } interfaces: { sub. superInterface }.
+	self assert: builder sortedInterfaceConcepts asArray equals: { superInterface. sub }.
+	self assert: (builder implementersOf: superInterface) asSet equals: { a. sub } asSet.
+	self assert: (builder implementersOf: sub) asSet equals: { a. b } asSet.
+	builder computeFields.
+	self assert: sub fields keys asSet equals: #( 'y' ) asSet.
+	self assert: superInterface fields keys asSet equals: #( 'y' ) asSet.
+	self assert: a fields keys asSet equals: #( 'r' 'x' 'y' ) asSet.
+	self assert: b fields keys asSet equals: #( 'r' 'x' 'y' ) asSet
+]
+
+{ #category : 'tests' }
+MGModelSchemaTest >> testInterfaceFieldsAreSharedByImplementers [
+	"For each interface, every possible type has each field of the interface, with the same wrappers (list, non null) and the same named type or a type implementing it (covariant relation)"
+
+	| types byName conforms interfaces |
+	types := ((self dataFrom: (self
+		query: '{ __schema { types { kind name interfaces { name } possibleTypes { name } fields { name type { kind name ofType { kind name ofType { kind name ofType { kind name } } } } } } } }'
+		variables: nil on: self modelSchema model: model)) at: '__schema') at: 'types'.
+	byName := Dictionary new.
+	types do: [ :t | byName at: (t at: 'name') put: t ].
+	conforms := [ :implName :ifaceName |
+		implName = ifaceName or: [
+			(((byName at: implName) at: 'interfaces') ifNil: [ #(  ) ]) anySatisfy: [ :i | (i at: 'name') = ifaceName ] ] ].
+	interfaces := types select: [ :t | (t at: 'kind') = 'INTERFACE' ].
+	self assert: interfaces size > 2.
+	interfaces do: [ :iface |
+		self assert: (iface at: 'possibleTypes') notEmpty.
+		(iface at: 'possibleTypes') do: [ :possible |
+			| implFields |
+			implFields := Dictionary new.
+			((byName at: (possible at: 'name')) at: 'fields') do: [ :f | implFields at: (f at: 'name') put: f ].
+			(iface at: 'fields') do: [ :field |
+				| implField ifaceKinds implKinds |
+				implField := implFields at: (field at: 'name') ifAbsent: [ nil ].
+				self assert: implField notNil description: [ (possible at: 'name') , ' misses ' , (iface at: 'name') , '.' , (field at: 'name') ].
+				ifaceKinds := self kindsOf: (field at: 'type').
+				implKinds := self kindsOf: (implField at: 'type').
+				self assert: (implKinds first: implKinds size - 2) equals: (ifaceKinds first: ifaceKinds size - 2).
+				self
+					assert: (conforms value: implKinds last value: ifaceKinds last)
+					description: [ (possible at: 'name') , '.' , (field at: 'name') , ' is not compatible with ' , (iface at: 'name') ] ] ] ]
+]
+
+{ #category : 'tests' }
+MGModelSchemaTest >> testInterfaceForPolymorphicRelation [
+	"Comment.commentedEntity is declared as FamixTWithComments, satisfied by both Class and Method in the commented model:
+	it is typed with the interface TWithComments, which has the identity fields and its own root fields,
+	and its values report their concrete concept through __typename and type"
+
+	| commented builder schema introspected queryFields queryFieldNames commentFields interface concept data |
+	commented := self commentedModel.
+	builder := MGModelSchemaBuilder on: commented.
+	schema := builder build.
+	introspected := self introspectedSchemaOf: schema model: commented.
+	queryFields := (introspected at: 'queryType') at: 'fields'.
+	queryFieldNames := (queryFields collect: [ :f | f at: 'name' ]) asSet.
+	self assert: (queryFieldNames includesAll: #( 'rootEntities' 'classes' 'class' 'comments' 'comment' 'methods' 'method' )).
+	"the interface exists, with its root fields"
+	interface := (introspected at: 'types') detect: [ :t | (t at: 'name') = 'TWithComments' ] ifNone: [ nil ].
+	self assert: interface notNil.
+	self assert: (interface at: 'kind') equals: 'INTERFACE'.
+	self assert: ((interface at: 'description') includesSubstring: 'interface').
+	concept := builder sortedInterfaceConcepts detect: [ :c | c typeName = 'TWithComments' ].
+	self assert: (queryFieldNames includes: concept listFieldName).
+	self assert: (queryFieldNames includes: concept byIdFieldName).
+	self
+		assert: (self kindsOf: ((queryFields detect: [ :f | (f at: 'name') = concept listFieldName ]) at: 'type'))
+		equals: #( 'NON_NULL' 'LIST' 'NON_NULL' 'INTERFACE' 'TWithComments' ).
+	self
+		assert: (self kindsOf: ((queryFields detect: [ :f | (f at: 'name') = concept byIdFieldName ]) at: 'type'))
+		equals: #( 'INTERFACE' 'TWithComments' ).
+	self assert: ((self fieldsOfType: 'TWithComments' in: introspected) keys includesAll: #( 'id' 'name' 'type' )).
+	commentFields := self fieldsOfType: 'Comment' in: introspected.
+	self
+		assert: (self kindsOf: ((commentFields at: 'commentedEntity') at: 'type'))
+		equals: #( 'INTERFACE' 'TWithComments' ).
+	"Class.comments and Method.comments are typed with the single concrete Comment concept"
+	self
+		assert: (self kindsOf: (((self fieldsOfType: 'Class' in: introspected) at: 'comments') at: 'type'))
+		equals: #( 'NON_NULL' 'LIST' 'NON_NULL' 'OBJECT' 'Comment' ).
+	data := self dataFrom: (self query: '{ comments { commentedEntity { __typename type name } } }' variables: nil on: schema model: commented).
+	self assert: ((data at: 'comments') collect: [ :c | (c at: 'commentedEntity') at: 'type' ]) asSet equals: #( 'Class' 'Method' ) asSet.
+	self assert: ((data at: 'comments') collect: [ :c | (c at: 'commentedEntity') at: 'name' ]) asSet equals: #( 'CommentedClass' 'commentedMethod' ) asSet.
+	self assert: ((data at: 'comments') collect: [ :c | (c at: 'commentedEntity') at: '__typename' ]) asSet equals: #( 'Class' 'Method' ) asSet.
+	"the interface list root field answers the entities of both conforming classes"
+	data := self dataFrom: (self query: '{ ' , concept listFieldName , ' { __typename name } }' variables: nil on: schema model: commented).
+	self assert: ((data at: concept listFieldName) collect: [ :e | e at: '__typename' ]) asSet equals: #( 'Class' 'Method' ) asSet
+]
+
+{ #category : 'tests' }
+MGModelSchemaTest >> testInterfaceRootFields [
+	"An interface concept has a list root field answering the entities of all its conforming concrete classes (with take) and a by-id root field answering a conforming entity with its concrete __typename, or null for an entity that does not conform"
+
+	| builder schema named tMethod data classId methodId byId |
+	builder := MGModelSchemaBuilder on: model.
+	schema := builder build.
+	named := builder sortedInterfaceConcepts detect: [ :c | c typeName = 'NamedEntity' ].
+	tMethod := builder sortedInterfaceConcepts detect: [ :c | c typeName = 'TMethod' ].
+	self assert: named listFieldName equals: 'namedEntities'.
+	self assert: named byIdFieldName equals: 'namedEntity'.
+	data := self dataFrom: (self
+		query: '{ namedEntities { __typename name } two: namedEntities(take: 2) { name } classes { id name } methods { id name } }'
+		variables: nil on: schema model: model).
+	self assert: (data at: 'namedEntities') size equals: 6.
+	self
+		assert: ((data at: 'namedEntities') collect: [ :e | e at: 'name' ]) asSet
+		equals: #( 'Class1' 'Class2' 'm1' 'm2' 'm3' 'a1' ) asSet.
+	self
+		assert: ((data at: 'namedEntities') collect: [ :e | e at: '__typename' ]) asSet
+		equals: #( 'Attribute' 'Class' 'Method' ) asSet.
+	self assert: (data at: 'two') size equals: 2.
+	classId := ((data at: 'classes') detect: [ :e | (e at: 'name') = 'Class1' ]) at: 'id'.
+	methodId := ((data at: 'methods') detect: [ :e | (e at: 'name') = 'm1' ]) at: 'id'.
+	byId := self dataFrom: (self
+		query: 'query ById($c: ID!, $m: ID!) { named: namedEntity(id: $c) { __typename name } method: ' , tMethod byIdFieldName , '(id: $m) { __typename name } notAMethod: ' , tMethod byIdFieldName , '(id: $c) { __typename name } }'
+		variables: (Dictionary new at: 'c' put: classId; at: 'm' put: methodId; yourself)
+		on: schema model: model).
+	self assert: ((byId at: 'named') at: '__typename') equals: 'Class'.
+	self assert: ((byId at: 'named') at: 'name') equals: 'Class1'.
+	self assert: ((byId at: 'method') at: '__typename') equals: 'Method'.
+	self assert: ((byId at: 'method') at: 'name') equals: 'm1'.
+	self assert: (byId at: 'notAMethod') isNil
+]
+
+{ #category : 'tests' }
+MGModelSchemaTest >> testIsCompatibleImplementationOf [
+	"A field implements an interface field when it has the same name, kind and multiplicity, and the same scalar or a target conforming to the interface field target (any target when the latter is nil, i.e. MooseEntity)"
+
+	| string superInterface subInterface object relation |
+	string := MGConceptField scalarNamed: 'x' property: nil scalarName: 'String' multivalued: false.
+	self assert: (string isCompatibleImplementationOf: string).
+	self deny: ((MGConceptField scalarNamed: 'x' property: nil scalarName: 'Number' multivalued: false) isCompatibleImplementationOf: string).
+	self deny: ((MGConceptField scalarNamed: 'x' property: nil scalarName: 'String' multivalued: true) isCompatibleImplementationOf: string).
+	self deny: ((MGConceptField scalarNamed: 'other' property: nil scalarName: 'String' multivalued: false) isCompatibleImplementationOf: string).
+	self deny: ((MGConceptField relationNamed: 'x' property: nil target: nil multivalued: false) isCompatibleImplementationOf: string).
+	superInterface := MGConcept interfaceType: nil conformingClasses: #(  ).
+	superInterface interfaces: #(  ).
+	subInterface := MGConcept interfaceType: nil conformingClasses: #(  ).
+	subInterface interfaces: { superInterface }.
+	object := MGConcept objectType: nil conformingClasses: #(  ).
+	object interfaces: { subInterface. superInterface }.
+	relation := [ :target | MGConceptField relationNamed: 'r' property: nil target: target multivalued: true ].
+	self assert: ((relation value: object) isCompatibleImplementationOf: (relation value: nil)).
+	self assert: ((relation value: object) isCompatibleImplementationOf: (relation value: superInterface)).
+	self assert: ((relation value: subInterface) isCompatibleImplementationOf: (relation value: superInterface)).
+	self assert: ((relation value: superInterface) isCompatibleImplementationOf: (relation value: superInterface)).
+	self deny: ((relation value: superInterface) isCompatibleImplementationOf: (relation value: subInterface)).
+	self deny: ((relation value: nil) isCompatibleImplementationOf: (relation value: superInterface)).
+	self deny: ((relation value: object) isCompatibleImplementationOf: (MGConceptField relationNamed: 'r' property: nil target: nil multivalued: false))
+]
+
+{ #category : 'tests' }
 MGModelSchemaTest >> testListFieldsAndTake [
 	"classes answers the 2 classes, methods the 3 methods, attributes the attribute; take: limits the lists, including relation lists"
 
@@ -575,7 +774,7 @@ MGModelSchemaTest >> testListFieldsAndTake [
 
 { #category : 'tests' }
 MGModelSchemaTest >> testMooseEntityInterface [
-	"MooseEntity is an INTERFACE with the 9 generic fields (children and ancestors take an optional take: Int); its possible types are the concepts, and every concept OBJECT type implements it"
+	"MooseEntity is an INTERFACE with the 9 generic fields (children and ancestors take an optional take: Int); its possible types are the concepts, and every concept OBJECT type implements it first (then its supertype interfaces)"
 
 	| response iface fields objects |
 	response := self dataFrom: (self
@@ -610,7 +809,7 @@ MGModelSchemaTest >> testMooseEntityInterface [
 		           (t at: 'kind') = 'OBJECT' and: [ (t at: 'name') ~= 'Query' and: [ ((t at: 'name') beginsWith: '__') not ] ] ].
 	self assert: (objects collect: [ :t | t at: 'name' ]) asSet equals: #( 'Attribute' 'Class' 'Method' ) asSet.
 	objects do: [ :t |
-		self assert: ((t at: 'interfaces') collect: [ :i | i at: 'name' ]) asArray equals: #( 'MooseEntity' ) ]
+		self assert: ((t at: 'interfaces') collect: [ :i | i at: 'name' ]) first equals: 'MooseEntity' ]
 ]
 
 { #category : 'tests' }
@@ -716,25 +915,22 @@ MGModelSchemaTest >> testObjectPropertyWithDateAndTimesIsDateTime [
 			   nil ) asBag
 ]
 
-{ #category : 'tests - temporal' }
+{ #category : 'tests' }
 MGModelSchemaTest >> testObjectPropertyWithEntitiesStaysRelation [
-	"Object-typed values that are only entities keep the property a relation, typed with the helper type Object (satisfied by AnnotationInstanceAttribute and Class), resolving to the entities"
+	"Object-typed values that are only entities keep the property a relation; the declared type Object being built-in, it is typed with the MooseEntity interface, resolving to the entities"
 
 	| result entities |
 	result := self
-		          valueTypeAndDataOf: (self annotationModelWithValues: {
-					           [ :m | m allClasses first ].
-					           [ :m | m allClasses first ].
-					           nil })
-		          selection: ' { type name }'.
-	self assert: result first equals: #( 'OBJECT' 'Object' ).
-	self assert: (result second includes: 'Object').
+		valueTypeAndDataOf: (self annotationModelWithValues: { [ :m | m allClasses first ]. [ :m | m allClasses first ]. nil })
+		selection: ' { type name }'.
+	self assert: result first equals: #( 'INTERFACE' 'MooseEntity' ).
+	self deny: (result second includes: 'Object').
 	self assert: (result third count: [ :v | v isNil ]) equals: 1.
 	entities := result third reject: [ :v | v isNil ].
 	self assert: entities size equals: 2.
 	entities do: [ :v |
-			self assert: (v at: 'type') equals: 'Class'.
-			self assert: (v at: 'name') equals: 'Foo' ]
+		self assert: (v at: 'type') equals: 'Class'.
+		self assert: (v at: 'name') equals: 'Foo' ]
 ]
 
 { #category : 'tests - temporal' }
@@ -827,51 +1023,82 @@ MGModelSchemaTest >> testObjectPropertyWithOtherTemporalKinds [
 			self assert: result third asBag equals: each value second asBag ]
 ]
 
-{ #category : 'tests - temporal' }
+{ #category : 'tests' }
 MGModelSchemaTest >> testObjectPropertyWithoutValuesStaysRelation [
-	"With no value to sample (all nil), an Object-typed property stays a relation typed with the helper type Object, resolving to null"
+	"With no value to sample (all nil), an Object-typed property stays a relation typed with the MooseEntity interface, resolving to null"
 
 	| result |
-	result := self
-		          valueTypeAndDataOf:
-		          (self annotationModelWithValues: #( nil nil ))
-		          selection: ' { id }'.
-	self assert: result first equals: #( 'OBJECT' 'Object' ).
-	self assert: (result second includes: 'Object').
+	result := self valueTypeAndDataOf: (self annotationModelWithValues: #( nil nil )) selection: ' { id }'.
+	self assert: result first equals: #( 'INTERFACE' 'MooseEntity' ).
+	self deny: (result second includes: 'Object').
 	self assert: result third asArray equals: #( nil nil )
 ]
 
 { #category : 'tests' }
 MGModelSchemaTest >> testObjectTypesAreModelConcepts [
-	"The object types are exactly the concrete concepts having instances in the fixture model; the generic types are absent"
+	"The object types are exactly the concrete concepts having instances in the fixture model; the generic types are not object types, and Entity (FamixTest1 superclass of all the concepts) is an interface"
 
 	| schema names |
 	self assert: (self modelSchema isKindOf: GQLSchema).
 	schema := self introspectedSchema.
 	self assert: ((schema at: 'queryType') at: 'name') equals: 'Query'.
-	names := (self conceptObjectTypesOf: schema) collect: [ :t |
-		         t at: 'name' ].
-	self
-		assert: names asSet
-		equals: #( 'Attribute' 'Class' 'Method' ) asSet.
-	#( 'Entity' 'MetaClass' 'Model' 'Property' 'Relation' ) do: [
-			:generic |
-			self deny:
-				((schema at: 'types') anySatisfy: [ :t | (t at: 'name') = generic ]) ]
+	names := (self conceptObjectTypesOf: schema) collect: [ :t | t at: 'name' ].
+	self assert: names asSet equals: #( 'Attribute' 'Class' 'Method' ) asSet.
+	#( 'Entity' 'MetaClass' 'Model' 'Property' 'Relation' ) do: [ :generic |
+		self deny: ((schema at: 'types') anySatisfy: [ :t | (t at: 'name') = generic and: [ (t at: 'kind') = 'OBJECT' ] ]) ].
+	self assert: (((schema at: 'types') detect: [ :t | (t at: 'name') = 'Entity' ]) at: 'kind') equals: 'INTERFACE'
+]
+
+{ #category : 'tests' }
+MGModelSchemaTest >> testObjectsImplementTransitiveSupertypes [
+	"Each object implements MooseEntity first, then the interfaces of all its FM3 supertypes (superclasses and traits, without built-in and Moose base types) in the order of MGRegistry>>#allSupertypesOf:; an interface lists its own supertype interfaces too; every type implements the interfaces of its interfaces (GraphQL validity rule)"
+
+	| builder classConcept expected types interfacesByName |
+	builder := MGModelSchemaBuilder on: model.
+	builder build.
+	classConcept := builder rootConcepts detect: [ :c | c typeName = 'Class' ].
+	expected := OrderedCollection with: 'MooseEntity'.
+	((MGRegistry forModel: model) allSupertypesOf: classConcept fm3Type) do: [ :type |
+		(builder isInterfaceCandidate: type) ifTrue: [
+			expected add: (builder sortedInterfaceConcepts detect: [ :i | i fm3Type == type ]) typeName ] ].
+	self assert: expected size > 2.
+	types := ((self dataFrom: (self
+		query: '{ __schema { types { kind name interfaces { name } } } }'
+		variables: nil on: self modelSchema model: model)) at: '__schema') at: 'types'.
+	interfacesByName := Dictionary new.
+	types do: [ :t |
+		(t at: 'interfaces') ifNotNil: [ :list |
+			interfacesByName at: (t at: 'name') put: (list collect: [ :i | i at: 'name' ]) asArray ] ].
+	self assert: (interfacesByName at: 'Class') equals: expected asArray.
+	self assert: (interfacesByName at: 'NamedEntity') first equals: 'MooseEntity'.
+	self assert: ((interfacesByName at: 'NamedEntity') includesAll: #( 'Entity' 'TNamedEntity' )).
+	interfacesByName keysAndValuesDo: [ :typeName :names |
+		names do: [ :each |
+			self
+				assert: (names includesAll: (interfacesByName at: each))
+				description: [ typeName , ' does not implement all the interfaces of ' , each ] ] ]
 ]
 
 { #category : 'tests' }
 MGModelSchemaTest >> testQueryFields [
-	"Each root concept has a plural lowerFirst list field and a singular lowerFirst by-id field; plus the generic rootEntities field; nothing else"
+	"Each object concept has a plural lowerFirst list field and a singular lowerFirst by-id field typed with the object (unchanged); plus the generic rootEntities field; every other Query field is a root field of an interface concept, typed with that interface"
 
-	| fields |
+	| fields objectFieldNames others |
 	fields := (self introspectedSchema at: 'queryType') at: 'fields'.
+	objectFieldNames := #( 'attributes' 'attribute' 'classes' 'class' 'methods' 'method' ) asSet.
 	self
-		assert: (fields collect: [ :f | f at: 'name' ]) asSet
-		equals:
-			#( 'rootEntities' 'attributes' 'attribute' 'classes' 'class' 'methods' 'method' )
-				asSet.
-	self assert: fields size equals: 7
+		assert: ((fields select: [ :f | (self kindsOf: (f at: 'type')) includes: 'OBJECT' ]) collect: [ :f | f at: 'name' ]) asSet
+		equals: objectFieldNames.
+	self assert: ((fields collect: [ :f | f at: 'name' ]) includes: 'rootEntities').
+	others := fields reject: [ :f | (objectFieldNames includes: (f at: 'name')) or: [ (f at: 'name') = 'rootEntities' ] ].
+	self assert: others notEmpty.
+	others do: [ :f |
+		| kinds |
+		kinds := self kindsOf: (f at: 'type').
+		self assert: (kinds at: kinds size - 1) equals: 'INTERFACE'.
+		self deny: kinds last equals: 'MooseEntity' ].
+	self assert: ((others collect: [ :f | f at: 'name' ]) includesAll: #( 'namedEntities' 'namedEntity' )).
+	self assert: fields size equals: others size + objectFieldNames size + 1
 ]
 
 { #category : 'tests' }

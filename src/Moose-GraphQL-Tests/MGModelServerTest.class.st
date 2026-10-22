@@ -214,47 +214,42 @@ MGModelServerTest >> testFluidPostDetail [
 
 { #category : 'tests' }
 MGModelServerTest >> testFluidRootTypeAndQueryFields [
-	"(1) The client asks for the root query type name; (2) the Query type exposes the root fields of the model concepts"
+	"(1) The client asks for the root query type name; (2) the Query type exposes the root fields of the object concepts (unchanged), rootEntities, and the root fields of the interface concepts, typed with their interface"
 
-	| data query fields classes byId |
+	| data query fields classes byId objectFieldNames others |
 	data := self
-		        dataOfPost:
-		        'query FluidRootType { __schema { queryType { name __typename } __typename } }'
-		        operationName: 'FluidRootType'
-		        variables: nil.
-	self
-		assert: (((data at: '__schema') at: 'queryType') at: 'name')
-		equals: 'Query'.
+		dataOfPost: 'query FluidRootType { __schema { queryType { name __typename } __typename } }'
+		operationName: 'FluidRootType'
+		variables: nil.
+	self assert: (((data at: '__schema') at: 'queryType') at: 'name') equals: 'Query'.
 	query := self fluidTypeDeep: 'Query'.
 	fields := query at: 'fields'.
+	objectFieldNames := #( 'attributes' 'attribute' 'classes' 'class' 'methods' 'method' ) asSet.
 	self
-		assert: (fields collect: [ :f | f at: 'name' ]) asSet
-		equals:
-			#( 'rootEntities' 'attributes' 'attribute' 'classes' 'class' 'methods' 'method' )
-				asSet.
+		assert: ((fields select: [ :f | (self chainOf: (f at: 'type')) includes: 'OBJECT' ]) collect: [ :f | f at: 'name' ]) asSet
+		equals: objectFieldNames.
+	self assert: ((fields collect: [ :f | f at: 'name' ]) includes: 'rootEntities').
+	others := fields reject: [ :f | (objectFieldNames includes: (f at: 'name')) or: [ (f at: 'name') = 'rootEntities' ] ].
+	self assert: others notEmpty.
+	others do: [ :f |
+		| chain |
+		chain := self chainOf: (f at: 'type').
+		self assert: (chain at: chain size - 1) equals: 'INTERFACE' ].
 	classes := fields detect: [ :f | (f at: 'name') = 'classes' ].
+	self assert: (self chainOf: (classes at: 'type')) equals: #( 'NON_NULL' 'LIST' 'NON_NULL' 'OBJECT' 'Class' ).
 	self
-		assert: (self chainOf: (classes at: 'type'))
-		equals: #( 'NON_NULL' 'LIST' 'NON_NULL' 'OBJECT' 'Class' ).
-	self
-		assert: (self chainOf:
-				 (((classes at: 'args') detect: [ :a | (a at: 'name') = 'take' ])
-					  at: 'type'))
+		assert: (self chainOf: (((classes at: 'args') detect: [ :a | (a at: 'name') = 'take' ]) at: 'type'))
 		equals: #( 'SCALAR' 'Int' ).
 	byId := fields detect: [ :f | (f at: 'name') = 'class' ].
+	self assert: (self chainOf: (byId at: 'type')) equals: #( 'OBJECT' 'Class' ).
 	self
-		assert: (self chainOf: (byId at: 'type'))
-		equals: #( 'OBJECT' 'Class' ).
-	self
-		assert: (self chainOf:
-				 (((byId at: 'args') detect: [ :a | (a at: 'name') = 'id' ]) at:
-					  'type'))
+		assert: (self chainOf: (((byId at: 'args') detect: [ :a | (a at: 'name') = 'id' ]) at: 'type'))
 		equals: #( 'NON_NULL' 'SCALAR' 'ID' )
 ]
 
 { #category : 'tests' }
 MGModelServerTest >> testFluidTypeDeepClass [
-	"(2) Deep introspection of the Class concept: identity fields, typed relations, and no generic Entity type"
+	"(2) Deep introspection of the Class concept: identity fields, typed relations, and Entity (FamixTest1 superclass) being an interface, not an object"
 
 	| type byName |
 	type := self fluidTypeDeep: 'Class'.
@@ -279,7 +274,7 @@ MGModelServerTest >> testFluidTypeDeepClass [
 	self
 		assert: (self chainOf: ((byName at: 'numberOfMethods') at: 'type'))
 		equals: #( 'SCALAR' 'Number' ).
-	self assert: (self fluidTypeDeep: 'Entity') isNil
+	self assert: ((self fluidTypeDeep: 'Entity') at: 'kind') equals: 'INTERFACE'
 ]
 
 { #category : 'tests' }
