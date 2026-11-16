@@ -26,6 +26,17 @@ MGMetaClass >> = anObject [
 ]
 
 { #category : 'accessing' }
+MGMetaClass >> allSupertypes [
+	"Meta-classes of all my superclasses and traits (see MGRegistry>>#allSupertypesOf:), nearest first"
+	^ MGSafe
+		do: [
+			(registry allSupertypesOf: fm3Class)
+				collect: [ :each | registry metaClassFor: each model: model ]
+				thenSelect: [ :each | each notNil ] ]
+		default: #()
+]
+
+{ #category : 'accessing' }
 MGMetaClass >> count [
 	^ self instances size
 ]
@@ -104,4 +115,15 @@ MGMetaClass >> superclass [
 			fm3Class superclass ifNotNil: [ :sup |
 				(sup isKindOf: FM3Class) ifTrue: [ registry metaClassFor: sup model: model ] ifFalse: [ nil ] ] ]
 		default: nil
+]
+
+{ #category : 'accessing' }
+MGMetaClass >> traits [
+	"Meta-classes of my direct FM3 traits, sorted by name"
+	^ MGSafe
+		do: [
+			((fm3Class traits asArray ifNil: [ #() ]) asSortedCollection: [ :a :b | a name asString <= b name asString ]) asArray
+				collect: [ :each | registry metaClassFor: each model: model ]
+				thenSelect: [ :each | each notNil ] ]
+		default: #()
 ]

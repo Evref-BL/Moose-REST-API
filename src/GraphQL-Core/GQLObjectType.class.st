@@ -1,28 +1,15 @@
 "
-I am a GraphQL object type; fields is an OrderedDictionary name -> GQLFieldDefinition.
+I am a GraphQL object type: a concrete composite type (see GQLCompositeType). My fields are an OrderedDictionary name -> GQLFieldDefinition.
+
+I may implement interfaces (GQLInterfaceType): I then must provide every field they declare with compatible types and arguments, which the schema checks (GQLSchema>>validateInterfacesOf:). I am the only kind of type that can be the runtime type of a value of an abstract (interface) type.
 "
 Class {
 	#name : 'GQLObjectType',
-	#superclass : 'GQLType',
-	#instVars : [
-		'fields'
-	],
+	#superclass : 'GQLCompositeType',
 	#category : 'GraphQL-Core-Schema',
 	#package : 'GraphQL-Core',
 	#tag : 'Schema'
 }
-
-{ #category : 'instance creation' }
-GQLObjectType class >> name: aString [
-	^ self new name: aString; yourself
-]
-
-{ #category : 'adding' }
-GQLObjectType >> addField: aFieldDefinition [
-	(fields includesKey: aFieldDefinition name) ifTrue: [
-		^ self error: 'Field "' , aFieldDefinition name , '" is already defined in type "' , name asString , '"' ].
-	^ fields at: aFieldDefinition name put: aFieldDefinition
-]
 
 { #category : 'execution' }
 GQLObjectType >> completePresentValue: aResult fields: aFieldCollection path: aPath parentType: anObjectType fieldDefinition: aFieldDefinition executor: anExecutor [
@@ -34,29 +21,6 @@ GQLObjectType >> completePresentValue: aResult fields: aFieldCollection path: aP
 		  path: aPath
 ]
 
-{ #category : 'accessing' }
-GQLObjectType >> fieldNamed: aString [
-	^ fields at: aString asString ifAbsent: [ nil ]
-]
-
-{ #category : 'accessing' }
-GQLObjectType >> fields [
-	^ fields
-]
-
-{ #category : 'initialization' }
-GQLObjectType >> initialize [
-	super initialize.
-	fields := OrderedDictionary new
-]
-
-{ #category : 'accessing' }
-GQLObjectType >> interfaces [
-	"Interfaces are not supported: an object type implements none"
-
-	^ #(  )
-]
-
 { #category : 'testing' }
 GQLObjectType >> isObject [
 	^ true
@@ -65,10 +29,4 @@ GQLObjectType >> isObject [
 { #category : 'accessing' }
 GQLObjectType >> kind [
 	^ 'OBJECT'
-]
-
-{ #category : 'resolving' }
-GQLObjectType >> resolveFieldTypesIn: aSchema [
-
-	fields do: [ :each | each resolveTypeIn: aSchema ]
 ]

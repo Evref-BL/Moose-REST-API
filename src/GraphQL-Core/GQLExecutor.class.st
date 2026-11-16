@@ -77,20 +77,30 @@ GQLExecutor >> basicExecute: aQueryString operationName: anOperationNameOrNil va
 
 { #category : 'private - executing' }
 GQLExecutor >> checkSelectionOf: aFieldDefinition fields: aFieldCollection path: aPath [
-	"Leaf fields must not have sub-selections, object fields must have one"
+	"Leaf fields must not have sub-selections, composite (object or interface) fields must have one"
+
 	| namedType fieldName |
 	namedType := aFieldDefinition type namedType.
 	fieldName := aFieldCollection first name asString.
-	(namedType isLeaf and: [ aFieldCollection anySatisfy: [ :each | each selectionSet notNil ] ]) ifTrue: [
-		^ self
-			staticFieldError: 'Field "' , fieldName , '" must not have a selection since type "' , aFieldDefinition type printString , '" has no subfields.'
-			fields: aFieldCollection
-			path: aPath ].
-	(namedType isObject and: [ aFieldCollection allSatisfy: [ :each | each selectionSet isNil ] ]) ifTrue: [
-		^ self
-			staticFieldError: 'Field "' , fieldName , '" of type "' , aFieldDefinition type printString , '" must have a selection of subfields.'
-			fields: aFieldCollection
-			path: aPath ]
+	(namedType isLeaf and: [
+		 aFieldCollection anySatisfy: [ :each | each selectionSet notNil ] ])
+		ifTrue: [
+				^ self
+					  staticFieldError:
+						  'Field "' , fieldName
+						  , '" must not have a selection since type "'
+						  , aFieldDefinition type printString , '" has no subfields.'
+					  fields: aFieldCollection
+					  path: aPath ].
+	(namedType isComposite and: [
+		 aFieldCollection allSatisfy: [ :each | each selectionSet isNil ] ])
+		ifTrue: [
+				^ self
+					  staticFieldError: 'Field "' , fieldName , '" of type "'
+						  , aFieldDefinition type printString
+						  , '" must have a selection of subfields.'
+					  fields: aFieldCollection
+					  path: aPath ]
 ]
 
 { #category : 'private - executing' }
@@ -296,6 +306,46 @@ GQLExecutor >> collectInlineFragment: anInlineFragment objectType: anObjectType 
 		visited: aVisitedSet
 		into: aGroupedDictionary
 		path: aPath
+]
+
+{ #category : 'private - completion' }
+GQLExecutor >> completeAbstractValue: anAbstractType fields: aFieldCollection result: aResult path: aPath [
+	"Determine the concrete object type of aResult, a value of anAbstractType (interface), and complete it as an object of that type.
+	Record a field error if the type cannot be resolved or is not a possible type of anAbstractType"
+
+	| failure runtimeType |
+	runtimeType := [
+		               schema
+			               runtimeTypeOf: aResult
+			               abstractType: anAbstractType
+			               context: context userContext ]
+		               on: Error
+		               do: [ :e |
+				               failure := e.
+				               nil ].
+	failure ifNotNil: [
+			^ self
+				  fieldError: (self messageForException: failure)
+				  fields: aFieldCollection
+				  path: aPath ].
+	runtimeType ifNil: [
+			^ self
+				  fieldError: 'Abstract type "' , anAbstractType name
+					  , '" must resolve to an object type at runtime for value '
+					  , (self describeValue: aResult) , '.'
+				  fields: aFieldCollection
+				  path: aPath ].
+	(schema isPossibleType: runtimeType for: anAbstractType) ifFalse: [
+			^ self
+				  fieldError: 'Runtime object type "' , runtimeType name
+					  , '" is not a possible type for "' , anAbstractType name , '".'
+				  fields: aFieldCollection
+				  path: aPath ].
+	^ self
+		  completeObjectValue: runtimeType
+		  fields: aFieldCollection
+		  result: aResult
+		  path: aPath
 ]
 
 { #category : 'private - completion' }
@@ -812,7 +862,12 @@ GQLExecutor >> syntaxErrorResponse: aSyntaxError [
 
 { #category : 'private - fields collection' }
 GQLExecutor >> typeCondition: aTypeNameOrNil appliesTo: anObjectType [
-	^ aTypeNameOrNil isNil or: [ aTypeNameOrNil asString = anObjectType name ]
+	"A fragment applies when it has no type condition, when its type condition is the object type itself,
+	or when it names an interface implemented by the object type"
+
+	aTypeNameOrNil ifNil: [ ^ true ].
+	aTypeNameOrNil asString = anObjectType name ifTrue: [ ^ true ].
+	^ anObjectType implements: aTypeNameOrNil asString
 ]
 
 { #category : 'private - executing' }

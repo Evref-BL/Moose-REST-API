@@ -9,7 +9,8 @@ Class {
 		'queryType',
 		'types',
 		'description',
-		'metaFields'
+		'metaFields',
+		'typeResolver'
 	],
 	#category : 'GraphQL-Core-Schema',
 	#package : 'GraphQL-Core',
@@ -42,6 +43,13 @@ GQLSchema >> addType: aNamedType [
 GQLSchema >> allNamedTypes [
 	"All registered named types sorted by name"
 	^ (types values asSortedCollection: [ :a :b | a name <= b name ]) asArray
+]
+
+{ #category : 'accessing' }
+GQLSchema >> compositeTypes [
+	"Object and interface types sorted by name"
+
+	^ self allNamedTypes select: [ :each | each isComposite ]
 ]
 
 { #category : 'accessing' }
@@ -102,6 +110,25 @@ GQLSchema >> installIntrospection [
 ]
 
 { #category : 'accessing' }
+GQLSchema >> interfaceTypes [
+	"Interface types sorted by name"
+
+	^ self allNamedTypes select: [ :each | each isInterface ]
+]
+
+{ #category : 'testing' }
+GQLSchema >> isPossibleType: anObjectType for: anAbstractType [
+	"Answer whether anObjectType may be the runtime type of a value of anAbstractType"
+
+	anObjectType isNil ifTrue: [ ^ false ].
+	anObjectType isObject ifFalse: [ ^ false ].
+	anAbstractType isAbstract ifFalse: [
+		^ anObjectType name = anAbstractType name ].
+	^ (self typeNamed: anObjectType name) == anObjectType and: [
+		  anObjectType implements: anAbstractType ]
+]
+
+{ #category : 'accessing' }
 GQLSchema >> metaFieldNamed: aString [
 	"Answer the GQLFieldDefinition of a meta field (such as __schema or __type) available on the query type, nil if none"
 
@@ -119,6 +146,15 @@ GQLSchema >> metaFields [
 { #category : 'accessing' }
 GQLSchema >> objectTypes [
 	^ self allNamedTypes select: [ :each | each isObject ]
+]
+
+{ #category : 'accessing' }
+GQLSchema >> possibleTypesOf: anAbstractType [
+	"Answer the object types (sorted by name) that may be the runtime type of a value of anAbstractType:
+	the object types implementing the interface, directly or transitively. Empty for non-abstract types"
+
+	anAbstractType isAbstract ifFalse: [ ^ #(  ) ].
+	^ self objectTypes select: [ :each | each implements: anAbstractType ]
 ]
 
 { #category : 'building' }
@@ -175,14 +211,41 @@ GQLSchema >> resolveTypeRef: aTypeRef [
 	^ ref resolveIn: self
 ]
 
-{ #category : 'resolving' }
+{ #category : 'building' }
 GQLSchema >> resolveTypes [
-	"Resolve the type references of all fields and arguments of the object types"
-	self objectTypes do: [ :objectType |
-		objectType fields do: [ :field |
-			field arguments do: [ :arg |
-				self resolveTypeOf: arg describedAs: 'argument "' , arg name , '" of field ' , objectType name , '.' , field name ].
-			self resolveTypeOf: field describedAs: 'field ' , objectType name , '.' , field name ] ]
+	"Resolve the implemented interfaces and the type references of all fields and arguments of the composite (object and interface) types"
+
+	self compositeTypes do: [ :compositeType |
+			compositeType resolveInterfacesIn: self.
+			compositeType fields do: [ :field |
+					field arguments do: [ :arg |
+							self
+								resolveTypeOf: arg
+								describedAs:
+									'argument "' , arg name , '" of field ' , compositeType name
+									, '.' , field name ].
+					self
+						resolveTypeOf: field
+						describedAs: 'field ' , compositeType name , '.' , field name ] ]
+]
+
+{ #category : 'execution' }
+GQLSchema >> runtimeTypeOf: anObject abstractType: anAbstractType context: aContext [
+	"Answer the registered type that is the concrete type of anObject, a value of anAbstractType, or nil if it cannot be determined.
+	Use the resolveTypeBlock of anAbstractType if any, else my typeResolver. The block is evaluated with
+	cull: anObject cull: aContext cull: anAbstractType and answers a type name (or a type)"
+
+	| resolver answer |
+	resolver := anAbstractType resolveTypeBlock ifNil: [ typeResolver ].
+	resolver ifNil: [ ^ nil ].
+	answer := resolver cull: anObject cull: aContext cull: anAbstractType.
+	answer ifNil: [ ^ nil ].
+	^ answer isString
+		  ifTrue: [ self typeNamed: answer ]
+		  ifFalse: [
+				  (answer isKindOf: GQLType)
+					  ifTrue: [ self typeNamed: answer name ]
+					  ifFalse: [ nil ] ]
 ]
 
 { #category : 'accessing' }
@@ -192,12 +255,27 @@ GQLSchema >> typeNamed: aString [
 ]
 
 { #category : 'accessing' }
+GQLSchema >> typeResolver [
+	"Default block resolving the concrete object type of values of abstract types that have no resolveTypeBlock of their own"
+
+	^ typeResolver
+]
+
+{ #category : 'accessing' }
+GQLSchema >> typeResolver: aBlock [
+	"aBlock is evaluated with cull: value cull: context cull: abstractType and answers the name of the concrete object type (or the type itself).
+	It is used for the abstract types without their own resolveTypeBlock"
+
+	typeResolver := aBlock
+]
+
+{ #category : 'accessing' }
 GQLSchema >> types [
 	"Dictionary name -> GQLType"
 	^ types
 ]
 
-{ #category : 'validation' }
+{ #category : 'validating' }
 GQLSchema >> validate [
 	"Check the schema is consistent; signal an Error with a clear message otherwise. Answer the receiver."
 
@@ -209,25 +287,93 @@ GQLSchema >> validate [
 	(self typeNamed: queryType name) == queryType ifFalse: [
 			^ self error: 'Query type "' , queryType name asString
 				  , '" is not registered in the schema' ].
-	self objectTypes do: [ :objectType |
-			objectType fields ifEmpty: [
-					^ self error:
-						  'Object type "' , objectType name
+	self compositeTypes do: [ :compositeType |
+			compositeType fields ifEmpty: [
+					^ self error: (compositeType isInterface
+							   ifTrue: [ 'Interface type "' ]
+							   ifFalse: [ 'Object type "' ]) , compositeType name
 						  , '" must define at least one field' ].
-			objectType fields do: [ :field |
+			compositeType fields do: [ :field |
 					self
 						validateType: field type
-						describedAs: 'field ' , objectType name , '.' , field name.
+						describedAs: 'field ' , compositeType name , '.' , field name.
+					field type isOutputType ifFalse: [
+							^ self error:
+								  'Type "' , field type printString , '" of field '
+								  , compositeType name , '.' , field name
+								  , ' is not an output type' ].
 					field arguments do: [ :arg |
 							| where |
 							where := 'argument "' , arg name , '" of field '
-							         , objectType name , '.' , field name.
+							         , compositeType name , '.' , field name.
 							self validateType: arg type describedAs: where.
 							arg type isInputType ifFalse: [
 									^ self error:
 										  'Type "' , arg type printString , '" of ' , where
-										  , ' is not an input type' ] ] ] ].
+										  , ' is not an input type' ] ] ].
+			self validateInterfacesOf: compositeType.
+			(compositeType isInterface and: [
+				 compositeType resolveTypeBlock isNil and: [ typeResolver isNil ] ])
+				ifTrue: [
+						^ self error: 'Interface type "' , compositeType name
+							  ,
+							  '" has no type resolver: set its resolveTypeBlock or the schema typeResolver' ] ].
 	^ self
+]
+
+{ #category : 'validating' }
+GQLSchema >> validateInterfacesOf: aCompositeType [
+	"Check aCompositeType correctly implements its interfaces (GraphQL IsValidImplementation); signal an Error otherwise"
+
+	| typeName |
+	typeName := aCompositeType name.
+	aCompositeType interfaces do: [ :interface |
+			interface == aCompositeType ifTrue: [
+				^ self error: 'Type "' , typeName , '" cannot implement itself' ].
+			interface interfaces do: [ :transitive |
+					transitive == aCompositeType ifTrue: [
+							^ self error:
+								  'Type "' , typeName
+								  , '" cannot implement itself through interface "'
+								  , interface name , '"' ].
+					(aCompositeType interfaces includes: transitive) ifFalse: [
+							^ self error:
+								  'Type "' , typeName , '" must implement "' , transitive name
+								  , '" because it is implemented by "' , interface name , '"' ] ].
+			interface fields do: [ :interfaceField |
+					| field where |
+					where := interface name , '.' , interfaceField name.
+					field := aCompositeType fieldNamed: interfaceField name.
+					field ifNil: [
+							^ self error:
+								  'Interface field ' , where , ' expected but type "'
+								  , typeName , '" does not provide it' ].
+					(field type isSubTypeOf: interfaceField type in: self) ifFalse: [
+							^ self error: 'Interface field ' , where , ' expects type "'
+								  , interfaceField type printString , '" but ' , typeName
+								  , '.' , field name , ' is type "' , field type printString
+								  , '"' ].
+					interfaceField arguments do: [ :interfaceArgument |
+							| argument |
+							argument := field argumentNamed: interfaceArgument name.
+							argument ifNil: [
+									^ self error:
+										  'Interface field argument ' , where , '('
+										  , interfaceArgument name , ':) expected but ' , typeName
+										  , '.' , field name , ' does not provide it' ].
+							(argument type isEqualType: interfaceArgument type) ifFalse: [
+									^ self error:
+										  'Interface field argument ' , where , '('
+										  , interfaceArgument name , ':) expects type "'
+										  , interfaceArgument type printString , '" but ' , typeName
+										  , '.' , field name , '(' , argument name , ':) is type "'
+										  , argument type printString , '"' ] ].
+					field arguments do: [ :argument |
+							((interfaceField argumentNamed: argument name) isNil and: [
+								 argument isRequired ]) ifTrue: [
+									^ self error: 'Field ' , typeName , '.' , field name
+										  , ' includes required argument ' , argument name
+										  , ' that is missing from the interface field ' , where ] ] ] ]
 ]
 
 { #category : 'private' }

@@ -124,7 +124,49 @@ MGSchema class >> defineEntityOn: aBuilder [
 					resolve: [ :e :args :ctx |
 							(self registryFrom: ctx)
 								relatedOf: e
-								take: (self arg: 'take' in: args) ] ]
+								take: (self arg: 'take' in: args) ].
+				o
+					field: 'container'
+					type: 'Entity'
+					description: 'Direct container of the entity (the first one when it has several), or null.'
+					resolve: [ :e :args :ctx |
+					(self registryFrom: ctx) containerOf: e ].
+				o
+					field: 'containers'
+					type: '[Entity!]!'
+					description: 'All direct containers of the entity.'
+					resolve: [ :e :args :ctx |
+					(self registryFrom: ctx) containersOf: e ].
+				o
+					field: 'children'
+					type: '[Entity!]!'
+					description: 'Entities directly contained by this entity.'
+					args: { ('take' -> 'Int') }
+					resolve: [ :e :args :ctx |
+							(self registryFrom: ctx)
+								childrenOf: e
+								take: (self arg: 'take' in: args) ].
+				o
+					field: 'childrenCount'
+					type: 'Int'
+					description: 'Number of entities directly contained by this entity.'
+					resolve: [ :e :args :ctx |
+					(self registryFrom: ctx) childrenCountOf: e ].
+				o
+					field: 'ancestors'
+					type: '[Entity!]!'
+					description: 'Containment chain of the entity, nearest container first.'
+					args: { ('take' -> 'Int') }
+					resolve: [ :e :args :ctx |
+							(self registryFrom: ctx)
+								ancestorsOf: e
+								take: (self arg: 'take' in: args) ].
+				o
+					field: 'types'
+					type: '[String!]!'
+					description: 'Names of the entity meta-class and of all its supertypes (superclasses and traits).'
+					resolve: [ :e :args :ctx |
+					(self registryFrom: ctx) supertypeNamesOf: e ] ]
 ]
 
 { #category : 'building' }
@@ -167,7 +209,17 @@ MGSchema class >> defineMetaClassOn: aBuilder [
 					'Entities of the model having exactly this meta-class.'
 					args: { ('take' -> 'Int') }
 					resolve: [ :m :args :ctx |
-					m instances: (self arg: 'take' in: args) ] ]
+					m instances: (self arg: 'take' in: args) ].
+				o
+					field: 'traits'
+					type: '[MetaClass!]!'
+					description: 'Meta-classes of the traits directly used by this one, sorted by name.'
+					resolve: [ :m :args :ctx | m traits ].
+				o
+					field: 'allSupertypes'
+					type: '[MetaClass!]!'
+					description: 'All superclasses and traits (transitively), nearest first.'
+					resolve: [ :m :args :ctx | m allSupertypes ] ]
 ]
 
 { #category : 'building' }
@@ -330,7 +382,18 @@ MGSchema class >> defineQueryOn: aBuilder [
 					description: 'A primitive property by id (<entityId>/<name>).'
 					args: { ('id' -> 'ID!') }
 					resolve: [ :src :args :ctx |
-						(self registryFrom: ctx) propertyAt: (self arg: 'id' in: args) ] ]
+						(self registryFrom: ctx) propertyAt: (self arg: 'id' in: args) ].
+				o
+					field: 'rootEntities'
+					type: '[Entity!]!'
+					description: 'Entities without container, optionally restricted to one model.'
+					args: {
+							('take' -> 'Int').
+							('modelId' -> 'ID') }
+					resolve: [ :src :args :ctx |
+							(self registryFrom: ctx)
+								rootEntitiesTake: (self arg: 'take' in: args)
+								modelId: (self arg: 'modelId' in: args) ] ]
 ]
 
 { #category : 'building' }
@@ -392,7 +455,12 @@ MGSchema class >> defineRelationOn: aBuilder [
 					field: 'owner'
 					type: 'Entity'
 					description: 'Entity owning the relation.'
-					resolve: [ :r :args :ctx | r owner ] ]
+					resolve: [ :r :args :ctx | r owner ].
+				o
+					field: 'isChildren'
+					type: 'Boolean'
+					description: 'True when the targets are contained by the owner.'
+					resolve: [ :r :args :ctx | r isChildrenProperty ] ]
 ]
 
 { #category : 'accessing' }

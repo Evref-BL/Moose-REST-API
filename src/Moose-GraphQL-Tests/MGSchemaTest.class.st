@@ -68,6 +68,47 @@ MGSchemaTest >> testEntitiesOfModelAndType [
 ]
 
 { #category : 'tests' }
+MGSchemaTest >> testEntityContainmentOfClass [
+	"Entity containment fields for a root container (Class1): no container, children with and without take"
+
+	| entity limited |
+	entity := (self
+		dataOf: 'query($id: ID!) { entity(id: $id) { container { id } containers { id } children { name } childrenCount ancestors { id } types } }'
+		variables: (Dictionary with: 'id' -> (self idOf: class1))) at: 'entity'.
+	self assert: (entity at: 'container') isNil.
+	self assert: (entity at: 'containers') isEmpty.
+	self assert: ((entity at: 'children') collect: [ :e | e at: 'name' ]) asArray equals: #( 'a1' 'm1' 'm2' ).
+	self assert: (entity at: 'childrenCount') equals: 3.
+	self assert: (entity at: 'ancestors') isEmpty.
+	self assert: (entity at: 'types') first equals: 'Class'.
+	self assert: ((entity at: 'types') includes: 'TClass').
+	self assert: ((entity at: 'types') includes: 'NamedEntity').
+	limited := (self
+		dataOf: 'query($id: ID!) { entity(id: $id) { children(take: 2) { name } ancestors(take: 0) { id } } }'
+		variables: (Dictionary with: 'id' -> (self idOf: class1))) at: 'entity'.
+	self assert: ((limited at: 'children') collect: [ :e | e at: 'name' ]) asArray equals: #( 'a1' 'm1' ).
+	self assert: (limited at: 'ancestors') isEmpty
+]
+
+{ #category : 'tests' }
+MGSchemaTest >> testEntityContainmentOfMethod [
+	"Entity.container / containers / children / childrenCount / ancestors / types for a contained leaf (m1)"
+
+	| entity |
+	entity := (self
+		dataOf: 'query($id: ID!) { entity(id: $id) { container { id name } containers { name } children { name } childrenCount ancestors { name } types } }'
+		variables: (Dictionary with: 'id' -> (self idOf: m1))) at: 'entity'.
+	self assert: ((entity at: 'container') at: 'id') equals: (self idOf: class1).
+	self assert: ((entity at: 'container') at: 'name') equals: 'Class1'.
+	self assert: ((entity at: 'containers') collect: [ :e | e at: 'name' ]) asArray equals: #( 'Class1' ).
+	self assert: (entity at: 'children') isEmpty.
+	self assert: (entity at: 'childrenCount') equals: 0.
+	self assert: ((entity at: 'ancestors') collect: [ :e | e at: 'name' ]) asArray equals: #( 'Class1' ).
+	self assert: (entity at: 'types') first equals: 'Method'.
+	self assert: ((entity at: 'types') includes: 'TMethod')
+]
+
+{ #category : 'tests' }
 MGSchemaTest >> testEntityDetailWithVariables [
 	"entity(id: $id) exposes sorted properties and relations; Class1.methods has 2 targets m1 and m2"
 
@@ -127,6 +168,25 @@ MGSchemaTest >> testMetaClassById [
 		((metaClass at: 'instances') collect: [ :i | i at: 'name' ]) asSet
 		equals: #( 'm1' 'm2' 'm3' ) asSet.
 	self assert: (metaClass at: 'first') size equals: 1
+]
+
+{ #category : 'tests' }
+MGSchemaTest >> testMetaClassTraitsAndAllSupertypes [
+	"MetaClass.traits: direct traits sorted by name; MetaClass.allSupertypes: superclasses and traits, nearest first, without the meta-class itself"
+
+	| metaClass traitNames superNames |
+	metaClass := ((self
+		dataOf: 'query($id: ID!) { entity(id: $id) { metaClass { name traits { name } allSupertypes { name } } } }'
+		variables: (Dictionary with: 'id' -> (self idOf: class1))) at: 'entity') at: 'metaClass'.
+	self assert: (metaClass at: 'name') equals: 'Class'.
+	traitNames := ((metaClass at: 'traits') collect: [ :t | t at: 'name' ]) asArray.
+	self assert: (traitNames includes: 'TClass').
+	self assert: traitNames equals: traitNames asSortedCollection asArray.
+	superNames := ((metaClass at: 'allSupertypes') collect: [ :t | t at: 'name' ]) asArray.
+	self assert: superNames first equals: 'TClass'.
+	self deny: (superNames includes: 'Class').
+	#( 'TNamedEntity' 'TWithMethods' 'NamedEntity' ) do: [ :n |
+		self assert: (superNames includes: n) description: n , ' missing' ]
 ]
 
 { #category : 'tests' }
@@ -222,6 +282,37 @@ MGSchemaTest >> testRelationAndPropertyById [
 ]
 
 { #category : 'tests' }
+MGSchemaTest >> testRelationIsChildren [
+	"Relation.isChildren is true for containment relations (Class1.methods, Class1.attributes) and false for the container side (m1.parentType)"
+
+	| classRelations methodRelations |
+	classRelations := ((self
+		dataOf: 'query($id: ID!) { entity(id: $id) { relations { name isChildren } } }'
+		variables: (Dictionary with: 'id' -> (self idOf: class1))) at: 'entity') at: 'relations'.
+	self assert: ((classRelations detect: [ :r | (r at: 'name') = 'methods' ]) at: 'isChildren').
+	self assert: ((classRelations detect: [ :r | (r at: 'name') = 'attributes' ]) at: 'isChildren').
+	methodRelations := ((self
+		dataOf: 'query($id: ID!) { entity(id: $id) { relations { name isChildren } } }'
+		variables: (Dictionary with: 'id' -> (self idOf: m1))) at: 'entity') at: 'relations'.
+	self deny: ((methodRelations detect: [ :r | (r at: 'name') = 'parentType' ]) at: 'isChildren')
+]
+
+{ #category : 'tests' }
+MGSchemaTest >> testRootEntities [
+	"Query.rootEntities: entities without container, by model, limited by take; unknown model answers []"
+
+	| data |
+	data := self dataOf: '{ rootEntities(modelId: "' , self modelId , '") { id name } }'.
+	self assert: ((data at: 'rootEntities') collect: [ :e | e at: 'name' ]) asArray equals: #( 'Class1' 'Class2' ).
+	data := self dataOf: '{ rootEntities(take: 1, modelId: "' , self modelId , '") { name } }'.
+	self assert: (data at: 'rootEntities') size equals: 1.
+	data := self dataOf: '{ rootEntities(modelId: "999999") { name } }'.
+	self assert: (data at: 'rootEntities') isEmpty.
+	data := self dataOf: '{ rootEntities(take: 1) { name } }'.
+	self assert: (data at: 'rootEntities') size <= 1
+]
+
+{ #category : 'tests' }
 MGSchemaTest >> testSchemaConventions [
 	"Introspection-level contract relied upon by generic GraphQL clients:
 	- Query list fields unwrap to a LIST of OBJECT and accept an optional take: Int
@@ -242,7 +333,7 @@ MGSchemaTest >> testSchemaConventions [
 		assert: (fields collect: [ :f | f at: 'name' ]) asSet
 		equals:
 			#( 'models' 'model' 'entities' 'entity' 'metaClass' 'relation'
-			   'property' ) asSet.
+			   'property' 'rootEntities' ) asSet.
 	fields do: [ :f |
 			| kinds take idArg |
 			kinds := (self kindsOf: (f at: 'type')) reject: [ :k |

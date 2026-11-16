@@ -83,6 +83,13 @@ GQLArgument >> initialize [
 	hasDefault := false
 ]
 
+{ #category : 'testing' }
+GQLArgument >> isRequired [
+	"Answer whether the argument must be provided: non-null type without default value"
+
+	^ type notNil and: [ type isNonNull and: [ self hasDefault not ] ]
+]
+
 { #category : 'accessing' }
 GQLArgument >> name [
 	^ name

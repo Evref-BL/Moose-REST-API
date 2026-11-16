@@ -19,6 +19,24 @@ Class {
 	#tag : 'Schema'
 }
 
+{ #category : 'private' }
+GQLSchemaBuilder >> addCompositeType: aCompositeType description: aDescription implements: interfaceNames fields: aBlock [
+	"Register aCompositeType (object or interface type) after declaring its description, interfaces and fields. Answer it"
+
+	(schema typeNamed: aCompositeType name) ifNotNil: [
+			^ self error:
+				  'Type "' , aCompositeType name asString , '" is already defined' ].
+	aCompositeType description: aDescription.
+	interfaceNames ifNotNil: [
+			(interfaceNames isString
+				 ifTrue: [ { interfaceNames } ]
+				 ifFalse: [ interfaceNames ]) do: [ :each |
+				aCompositeType addInterfaceNamed: each ] ].
+	aBlock ifNotNil: [
+		aBlock value: (GQLObjectTypeBuilder on: aCompositeType) ].
+	^ schema addType: aCompositeType
+]
+
 { #category : 'building' }
 GQLSchemaBuilder >> build [
 	"Resolve all type references, set the query type (defaults to 'Query'), validate and answer the GQLSchema"
@@ -59,14 +77,55 @@ GQLSchemaBuilder >> initialize [
 ]
 
 { #category : 'declaring' }
+GQLSchemaBuilder >> interface: aName description: aDescription fields: aBlock [
+	"Declare an interface type; aBlock receives a GQLObjectTypeBuilder. Answer the GQLInterfaceType"
+
+	^ self
+		  interface: aName
+		  description: aDescription
+		  implements: #(  )
+		  fields: aBlock
+]
+
+{ #category : 'declaring' }
+GQLSchemaBuilder >> interface: aName description: aDescription implements: interfaceNames fields: aBlock [
+	"Declare an interface type implementing the interfaces named in interfaceNames (a collection of names, or a single name);
+	aBlock receives a GQLObjectTypeBuilder. Answer the GQLInterfaceType (send it #resolveTypeBlock: to give it its own type resolver)"
+
+	^ self
+		  addCompositeType: (GQLInterfaceType name: aName)
+		  description: aDescription
+		  implements: interfaceNames
+		  fields: aBlock
+]
+
+{ #category : 'declaring' }
+GQLSchemaBuilder >> interface: aName fields: aBlock [
+
+	^ self interface: aName description: nil fields: aBlock
+]
+
+{ #category : 'declaring' }
 GQLSchemaBuilder >> object: aName description: aDescription fields: aBlock [
 	"Declare an object type; aBlock receives a GQLObjectTypeBuilder. Answer the GQLObjectType"
-	| type |
-	(schema typeNamed: aName) ifNotNil: [ ^ self error: 'Type "' , aName asString , '" is already defined' ].
-	type := GQLObjectType name: aName.
-	type description: aDescription.
-	aBlock ifNotNil: [ aBlock value: (GQLObjectTypeBuilder on: type) ].
-	^ schema addType: type
+
+	^ self
+		  object: aName
+		  description: aDescription
+		  implements: #(  )
+		  fields: aBlock
+]
+
+{ #category : 'declaring' }
+GQLSchemaBuilder >> object: aName description: aDescription implements: interfaceNames fields: aBlock [
+	"Declare an object type implementing the interfaces named in interfaceNames (a collection of names, or a single name);
+	aBlock receives a GQLObjectTypeBuilder. Answer the GQLObjectType"
+
+	^ self
+		  addCompositeType: (GQLObjectType name: aName)
+		  description: aDescription
+		  implements: interfaceNames
+		  fields: aBlock
 ]
 
 { #category : 'declaring' }
@@ -95,4 +154,12 @@ GQLSchemaBuilder >> schema [
 GQLSchemaBuilder >> type: aNamedGQLType [
 	"Register an already built named type"
 	^ schema addType: aNamedGQLType
+]
+
+{ #category : 'declaring' }
+GQLSchemaBuilder >> typeResolver: aBlock [
+	"Set the schema default type resolver of abstract types: aBlock is evaluated with cull: value cull: context cull: abstractType
+	and answers the name of the concrete object type"
+
+	schema typeResolver: aBlock
 ]

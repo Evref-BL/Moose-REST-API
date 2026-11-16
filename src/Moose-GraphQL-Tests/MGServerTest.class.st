@@ -203,7 +203,8 @@ MGServerTest >> testFluidTypeDeepEntity [
 		assert: byName keys asSet
 		equals:
 			#( 'id' 'name' 'mooseName' 'type' 'model' 'metaClass' 'properties'
-			   'relations' 'related' ) asSet.
+			   'relations' 'related' 'container' 'containers' 'children'
+			   'childrenCount' 'ancestors' 'types' ) asSet.
 	self
 		assert: (self chainOf: ((byName at: 'id') at: 'type'))
 		equals: #( 'NON_NULL' 'SCALAR' 'ID' ).
