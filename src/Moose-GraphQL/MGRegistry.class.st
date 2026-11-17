@@ -387,15 +387,30 @@ MGRegistry >> instancesOf: anFM3Class model: aMooseModel [
 MGRegistry >> instancesOfAll: someFM3Classes model: aMooseModel take: aTakeOrNil [
 	"At most aTakeOrNil (normalized) entities of aMooseModel whose metadescription is one of someFM3Classes, in the order of someFM3Classes"
 
-	| limit result |
+	^ self
+		  instancesOfAll: someFM3Classes
+		  model: aMooseModel
+		  take: aTakeOrNil
+		  skip: nil
+]
+
+{ #category : 'accessing - concepts' }
+MGRegistry >> instancesOfAll: someFM3Classes model: aMooseModel take: aTakeOrNil skip: aSkipOrNil [
+	"At most aTakeOrNil (normalized) entities of aMooseModel whose metadescription is one of someFM3Classes, in the order of someFM3Classes, after the first aSkipOrNil (normalized) ones"
+
+	| limit toSkip seen result |
 	limit := MGSafe normalizeTake: aTakeOrNil.
+	toSkip := MGSafe normalizeSkip: aSkipOrNil.
 	limit = 0 ifTrue: [ ^ #(  ) ].
 	result := OrderedCollection new.
+	seen := 0.
 	[
 		someFM3Classes do: [ :each |
 				(self instancesOf: each model: aMooseModel) do: [ :entity |
-						result add: entity.
-						result size >= limit ifTrue: [ ^ result asArray ] ] ] ]
+						seen := seen + 1.
+						seen > toSkip ifTrue: [
+								result add: entity.
+								result size >= limit ifTrue: [ ^ result asArray ] ] ] ] ]
 		on: Error
 		do: [ :e | e return: nil ].
 	^ result asArray

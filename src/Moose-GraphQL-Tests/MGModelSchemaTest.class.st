@@ -744,6 +744,26 @@ MGModelSchemaTest >> testIsCompatibleImplementationOf [
 ]
 
 { #category : 'tests' }
+MGModelSchemaTest >> testListFieldsAndSkip [
+	"skip: pages the root lists and the relation lists: the pages of a list put together answer the whole list"
+
+	| data all paged |
+	data := self modelDataOf:
+		        '{ methods { name } p1: methods(take: 2) { name } p2: methods(take: 2, skip: 2) { name } past: methods(skip: 10) { name } c: classes { all: methods { name } rest: methods(skip: 1) { name } } }'.
+	all := (data at: 'methods') collect: [ :m | m at: 'name' ].
+	paged := (data at: 'p1') , (data at: 'p2') collect: [ :m |
+		         m at: 'name' ].
+	self assert: paged asArray equals: all asArray.
+	self assert: (data at: 'p2') size equals: 1.
+	self assert: (data at: 'past') isEmpty.
+	self assert: ((data at: 'c') allSatisfy: [ :c |
+				 ((c at: 'rest') collect: [ :m | m at: 'name' ]) asArray
+				 =
+				 ((c at: 'all') allButFirst collect: [ :m | m at: 'name' ])
+					 asArray ])
+]
+
+{ #category : 'tests' }
 MGModelSchemaTest >> testListFieldsAndTake [
 	"classes answers the 2 classes, methods the 3 methods, attributes the attribute; take: limits the lists, including relation lists"
 
@@ -1139,7 +1159,7 @@ MGModelSchemaTest >> testRegistryForModel [
 { #category : 'tests' }
 MGModelSchemaTest >> testRelationTyping [
 	"A relation whose declared type is satisfied by exactly one concrete class of the model is typed with that concept:
-	Class.methods: [Method!]! (with take: Int), Class.attributes: [Attribute!]!, Method.parentType: Class, Attribute.parentType: Class"
+	Class.methods: [Method!]! (with take: Int, skip: Int), Class.attributes: [Attribute!]!, Method.parentType: Class, Attribute.parentType: Class"
 
 	| schema classFields methodFields attributeFields take |
 	schema := self introspectedSchema.
@@ -1159,14 +1179,14 @@ MGModelSchemaTest >> testRelationTyping [
 		assert:
 		(self kindsOf: ((attributeFields at: 'parentType') at: 'type'))
 		equals: #( 'OBJECT' 'Class' ).
-	"multivalued relations accept take: Int (args are not fetched by introspectedSchema: check through a query)"
+	"multivalued relations accept take: Int and skip: Int (args are not fetched by introspectedSchema: check through a query)"
 	take := self modelDataOf:
 		        '{ __type(name: "Class") { fields { name args { name type { kind name } } } } }'.
 	take := ((take at: '__type') at: 'fields') detect: [ :f |
 		        (f at: 'name') = 'methods' ].
 	self
 		assert: ((take at: 'args') collect: [ :a | a at: 'name' ]) asArray
-		equals: #( 'take' )
+		equals: #( 'take' 'skip' )
 ]
 
 { #category : 'tests' }

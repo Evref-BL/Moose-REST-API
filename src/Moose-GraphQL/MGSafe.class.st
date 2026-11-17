@@ -136,6 +136,21 @@ MGSafe class >> nameOf: anObject [
 ]
 
 { #category : 'converting' }
+MGSafe class >> normalizeSkip: aNumberOrNil [
+	"Answer a non-negative Integer; nil, negative or invalid values mean 0."
+
+	^ [
+		  | n |
+		  n := aNumberOrNil.
+		  n isString ifTrue: [ n := n asInteger ].
+		  (n isNil or: [ n isNumber not or: [ n < 0 ] ])
+			  ifTrue: [ 0 ]
+			  ifFalse: [ n asInteger ] ]
+		  on: Error
+		  do: [ :e | e return: 0 ]
+]
+
+{ #category : 'converting' }
 MGSafe class >> normalizeTake: aNumberOrNil [
 	"Answer an Integer between 0 and MGSchema maxTake; nil, negative or invalid values mean MGSchema defaultTake."
 
@@ -184,14 +199,25 @@ MGSafe class >> take: aNumberOrNil from: aCollection [
 	"Answer an Array with at most (normalized) aNumberOrNil elements of aCollection.
 	Iteration stops early so huge groups are never copied."
 
-	| limit result |
-	limit := self normalizeTake: aNumberOrNil.
-	result := OrderedCollection new: (limit min: 64).
+	^ self take: aNumberOrNil skip: nil from: aCollection
+]
+
+{ #category : 'converting' }
+MGSafe class >> take: aTakeOrNil skip: aSkipOrNil from: aCollection [
+	"Answer an Array with at most (normalized) aTakeOrNil elements of aCollection, after its first (normalized) aSkipOrNil elements.
+	Iteration stops early and skipped elements are not kept, so huge groups are never copied."
+
+	| limit toSkip seen result |
+	limit := self normalizeTake: aTakeOrNil.
+	toSkip := self normalizeSkip: aSkipOrNil.
 	(limit = 0 or: [ aCollection isNil ]) ifTrue: [ ^ #(  ) ].
+	result := OrderedCollection new: (limit min: 64).
+	seen := 0.
 	[
 		aCollection do: [ :each |
 				result size >= limit ifTrue: [ ^ result asArray ].
-				result add: each ] ]
+				seen := seen + 1.
+				seen > toSkip ifTrue: [ result add: each ] ] ]
 		on: Error
 		do: [ :e | e return: nil ].
 	^ result asArray

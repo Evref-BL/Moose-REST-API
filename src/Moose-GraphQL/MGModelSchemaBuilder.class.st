@@ -497,60 +497,71 @@ MGModelSchemaBuilder >> defineQuery [
 
 { #category : 'building' }
 MGModelSchemaBuilder >> defineRelationField: aFieldSpec on: anObjectTypeBuilder [
-	"Relation field of aFieldSpec: a list bounded by a take argument when multivalued, the first entity (or null) otherwise"
+	"Relation field of aFieldSpec: a list bounded by take and skip arguments when multivalued, the first entity (or null) otherwise"
 
 	aFieldSpec hasTakeArgument
 		ifTrue: [
-			anObjectTypeBuilder
-				field: aFieldSpec name
-				type: aFieldSpec typeString
-				description: (self descriptionOf: aFieldSpec property)
-				args: { ('take' -> 'Int') }
-				resolve: [ :entity :args :context |
-					MGSafe
-						take: (MGSchema arg: 'take' in: args)
-						from: (self entitiesOfField: aFieldSpec in: entity) ] ]
+				anObjectTypeBuilder
+					field: aFieldSpec name
+					type: aFieldSpec typeString
+					description: (self descriptionOf: aFieldSpec property)
+					args: {
+							('take' -> 'Int').
+							('skip' -> 'Int') }
+					resolve: [ :entity :args :context |
+							MGSafe
+								take: (MGSchema arg: 'take' in: args)
+								skip: (MGSchema arg: 'skip' in: args)
+								from: (self entitiesOfField: aFieldSpec in: entity) ] ]
 		ifFalse: [
-			anObjectTypeBuilder
-				field: aFieldSpec name
-				type: aFieldSpec typeString
-				description: (self descriptionOf: aFieldSpec property)
-				resolve: [ :entity :args :context |
-					(self entitiesOfField: aFieldSpec in: entity)
-						ifEmpty: [ nil ]
-						ifNotEmpty: [ :entities | entities first ] ] ]
+				anObjectTypeBuilder
+					field: aFieldSpec name
+					type: aFieldSpec typeString
+					description: (self descriptionOf: aFieldSpec property)
+					resolve: [ :entity :args :context |
+							(self entitiesOfField: aFieldSpec in: entity)
+								ifEmpty: [ nil ]
+								ifNotEmpty: [ :entities | entities first ] ] ]
 ]
 
 { #category : 'building' }
 MGModelSchemaBuilder >> defineRootFieldsOf: aConcept on: anObjectTypeBuilder [
-	"Root list and by-id fields of aConcept. An object concept answers the instances of exactly its class; an interface concept answers the exposable instances of all its conforming concrete classes (see #exposable:)"
+	"Root list and by-id fields of aConcept. An object concept answers the instances of exactly its class; an interface concept answers the exposable instances of all its conforming concrete classes (see #exposable:). The list pages with take and skip."
 
 	anObjectTypeBuilder
 		field: aConcept listFieldName
 		type: '[' , aConcept typeName , '!]!'
-		description: 'Entities of the model that are ' , aConcept typeName , ' (at most take, default ' , MGSchema defaultTake printString , ').'
-		args: { ('take' -> 'Int') }
+		description: 'Entities of the model that are ' , aConcept typeName
+			, ' (at most take, default ' , MGSchema defaultTake printString
+			, ', max ' , MGSchema maxTake printString
+			, '; skip the first skip ones to page).'
+		args: {
+				('take' -> 'Int').
+				('skip' -> 'Int') }
 		resolve: [ :source :args :context |
-			| entities |
-			entities := (self registryFrom: context)
-				            instancesOfAll: aConcept conformingClasses
-				            model: model
-				            take: (MGSchema arg: 'take' in: args).
-			aConcept isInterface
-				ifTrue: [ self exposable: entities ]
-				ifFalse: [ entities ] ].
+				| entities |
+				entities := (self registryFrom: context)
+					            instancesOfAll: aConcept conformingClasses
+					            model: model
+					            take: (MGSchema arg: 'take' in: args)
+					            skip: (MGSchema arg: 'skip' in: args).
+				aConcept isInterface
+					ifTrue: [ self exposable: entities ]
+					ifFalse: [ entities ] ].
 	anObjectTypeBuilder
 		field: aConcept byIdFieldName
 		type: aConcept typeName
-		description: 'A ' , aConcept typeName , ' by id (<modelId>:<mooseID>), null when unknown or of another type.'
+		description: 'A ' , aConcept typeName
+			,
+			' by id (<modelId>:<mooseID>), null when unknown or of another type.'
 		args: { ('id' -> 'ID!') }
 		resolve: [ :source :args :context |
-			((self registryFrom: context)
-				 entityAt: (MGSchema arg: 'id' in: args)
-				 ofAnyOf: aConcept conformingClasses) ifNotNil: [ :entity |
-				(aConcept isObject or: [ self exposableEntity: entity ])
-					ifTrue: [ entity ]
-					ifFalse: [ nil ] ] ]
+				((self registryFrom: context)
+					 entityAt: (MGSchema arg: 'id' in: args)
+					 ofAnyOf: aConcept conformingClasses) ifNotNil: [ :entity |
+						(aConcept isObject or: [ self exposableEntity: entity ])
+							ifTrue: [ entity ]
+							ifFalse: [ nil ] ] ]
 ]
 
 { #category : 'building' }

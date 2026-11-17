@@ -76,6 +76,16 @@ MGSafeTest >> testNameOfEntityWithIdOnlyMooseName [
 ]
 
 { #category : 'tests - take' }
+MGSafeTest >> testNormalizeSkip [
+
+	self assert: (MGSafe normalizeSkip: nil) equals: 0.
+	self assert: (MGSafe normalizeSkip: -1) equals: 0.
+	self assert: (MGSafe normalizeSkip: 'x') equals: 0.
+	self assert: (MGSafe normalizeSkip: '12') equals: 12.
+	self assert: (MGSafe normalizeSkip: 7) equals: 7
+]
+
+{ #category : 'tests - take' }
 MGSafeTest >> testNormalizeTake [
 
 	self assert: (MGSafe normalizeTake: nil) equals: 100.
@@ -219,4 +229,23 @@ MGSafeTest >> testTakeFrom [
 	self assert: (MGSafe take: 10 from: #( 1 2 )) equals: #( 1 2 ).
 	self assert: (MGSafe take: 10 from: nil) equals: #(  ).
 	self assert: (MGSafe take: 1 from: class1 methods) equals: { m1 }
+]
+
+{ #category : 'tests - take' }
+MGSafeTest >> testTakeSkipFrom [
+	"take:skip:from: pages through a collection; nil or negative skip means 0, take is still capped at maxTake"
+
+	| big |
+	big := (1 to: 5000) asArray.
+	self assert: (MGSafe take: 3 skip: 2 from: big) equals: #( 3 4 5 ).
+	self assert: (MGSafe take: 3 skip: nil from: big) equals: #( 1 2 3 ).
+	self assert: (MGSafe take: 3 skip: -4 from: big) equals: #( 1 2 3 ).
+	self
+		assert: (MGSafe take: 10 skip: 4998 from: big)
+		equals: #( 4999 5000 ).
+	self assert: (MGSafe take: 10 skip: 6000 from: big) equals: #(  ).
+	self
+		assert: (MGSafe take: 1000000 skip: 1000 from: big)
+		equals: (1001 to: 1000 + MGSchema maxTake) asArray.
+	self assert: (MGSafe take: 3 skip: 1 from: nil) equals: #(  )
 ]
